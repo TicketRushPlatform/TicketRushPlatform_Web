@@ -11,6 +11,7 @@ permissions:
   packages: write
 
 env:
+  REGISTRY_OWNER: ticketrushplatform
   IMAGE_NAME: ticketrush-web
 
 jobs:
@@ -34,8 +35,7 @@ jobs:
       - name: Generate image tag
         id: meta
         run: |
-          IMAGE=ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:latest
-
+          IMAGE=ghcr.io/${{ env.REGISTRY_OWNER }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
           echo "image=$IMAGE" >> $GITHUB_OUTPUT
 
           echo "Using image: $IMAGE"
