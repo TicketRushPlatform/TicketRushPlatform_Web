@@ -1,3 +1,5 @@
+import { config } from '../config/env'
+
 export type ApiErrorResponse = {
   code: string
   message: string
@@ -14,13 +16,6 @@ export class ApiError extends Error {
     this.status = status
     this.body = body
   }
-}
-
-const DEFAULT_BASE_URL = '/user-api'
-
-function getBaseUrl(): string {
-  const fromEnv = (import.meta as any).env?.VITE_USER_API_URL as string | undefined
-  return fromEnv?.trim() ? fromEnv.trim().replace(/\/$/, '') : DEFAULT_BASE_URL
 }
 
 async function parseJsonSafe(response: Response): Promise<unknown | undefined> {
@@ -41,7 +36,7 @@ async function requestJson<T>(
     accessToken?: string
   },
 ): Promise<T> {
-  const url = `${getBaseUrl()}${path.startsWith('/') ? path : `/${path}`}`
+  const url = `${config.api.userBaseUrl}${path.startsWith('/') ? path : `/${path}`}`
 
   const headers: Record<string, string> = {
     accept: 'application/json',
@@ -177,7 +172,7 @@ export async function getUser(accessToken: string, userId: string): Promise<User
 }
 
 export async function uploadMyMedia(accessToken: string, payload: UploadMediaPayload): Promise<UploadMediaResponse> {
-  const url = `${getBaseUrl()}/users/me/media`
+  const url = `${config.api.userBaseUrl}/users/me/media`
   const formData = new FormData()
   formData.set('kind', payload.kind ?? 'avatar')
   formData.set('file', payload.file)

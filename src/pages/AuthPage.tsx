@@ -14,6 +14,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import { ApiError, oauthFacebook, oauthGoogle } from '../services/userApi'
 import { saveTokens } from '../services/authStorage'
+import { config } from '../config/env'
 
 type AuthMode = 'login' | 'register'
 
@@ -136,10 +137,7 @@ export function AuthPage({ initialMode = 'login' }: { initialMode?: AuthMode }) 
   }
 
   function startOAuth(provider: OAuthProvider) {
-    const clientId =
-      provider === 'google'
-        ? ((import.meta as any).env?.VITE_GOOGLE_CLIENT_ID as string | undefined)
-        : ((import.meta as any).env?.VITE_FACEBOOK_APP_ID as string | undefined)
+    const clientId = provider === 'google' ? config.oauth.googleClientId : config.oauth.facebookAppId
 
     if (!clientId?.trim()) {
       setNotice({
@@ -391,8 +389,7 @@ function getOAuthStateStorageKey(provider: OAuthProvider) {
 }
 
 function getOAuthRedirectUri(provider: OAuthProvider) {
-  const overrideBase = ((import.meta as any).env?.VITE_OAUTH_REDIRECT_BASE_URL as string | undefined)?.trim()
-  const base = overrideBase ? overrideBase.replace(/\/$/, '') : window.location.origin
+  const base = config.oauth.redirectBase || window.location.origin
   return `${base}/auth/callback/${provider}`
 }
 

@@ -1,4 +1,5 @@
 import { generateSeats } from '../data/demoTicketRush'
+import { config } from '../config/env'
 import type {
   Booking,
   DashboardMetrics,
@@ -23,7 +24,6 @@ import type {
 const STORAGE_KEY = 'ticketrush.mock.state.v2'
 const HOLD_DURATION_MS = 10 * 60 * 1000
 const DEFAULT_USER_ID = 'demo-customer'
-const DEFAULT_EVENT_API_URL = '/event-api/api/v1'
 let catalogBootstrapPromise: Promise<void> | null = null
 function createEmptyState(): TicketRushState {
   return {
@@ -180,13 +180,8 @@ function writeState(state: TicketRushState): void {
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
 }
 
-function getEventApiBaseUrl(): string {
-  const fromEnv = (import.meta as any).env?.VITE_EVENT_API_URL as string | undefined
-  return fromEnv?.trim() ? fromEnv.trim().replace(/\/$/, '') : DEFAULT_EVENT_API_URL
-}
-
 async function fetchEventApi<T>(path: string): Promise<T> {
-  const response = await fetch(`${getEventApiBaseUrl()}${path.startsWith('/') ? path : `/${path}`}`, {
+  const response = await fetch(`${config.api.eventBaseUrl}${path.startsWith('/') ? path : `/${path}`}`, {
     headers: { accept: 'application/json' },
   })
   if (!response.ok) throw new Error('Unable to fetch event catalog from backend.')
@@ -195,7 +190,7 @@ async function fetchEventApi<T>(path: string): Promise<T> {
 }
 
 async function postEventApi<T>(path: string, body: unknown): Promise<T> {
-  const response = await fetch(`${getEventApiBaseUrl()}${path.startsWith('/') ? path : `/${path}`}`, {
+  const response = await fetch(`${config.api.eventBaseUrl}${path.startsWith('/') ? path : `/${path}`}`, {
     method: 'POST',
     headers: {
       accept: 'application/json',
@@ -211,7 +206,7 @@ async function postEventApi<T>(path: string, body: unknown): Promise<T> {
 }
 
 async function putEventApi<T>(path: string, body: unknown): Promise<T> {
-  const response = await fetch(`${getEventApiBaseUrl()}${path.startsWith('/') ? path : `/${path}`}`, {
+  const response = await fetch(`${config.api.eventBaseUrl}${path.startsWith('/') ? path : `/${path}`}`, {
     method: 'PUT',
     headers: {
       accept: 'application/json',
@@ -227,7 +222,7 @@ async function putEventApi<T>(path: string, body: unknown): Promise<T> {
 }
 
 async function putEventApiNoResponse(path: string, body: unknown): Promise<void> {
-  const response = await fetch(`${getEventApiBaseUrl()}${path.startsWith('/') ? path : `/${path}`}`, {
+  const response = await fetch(`${config.api.eventBaseUrl}${path.startsWith('/') ? path : `/${path}`}`, {
     method: 'PUT',
     headers: {
       accept: 'application/json',

@@ -11,6 +11,32 @@ Currently, two official plugins are available:
 
 The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
 
+## Runtime config (production)
+
+This app supports **runtime configuration** via a global object set by `public/runtime-config.js`.
+
+- **Where to set**: `window.__APP_CONFIG__`
+- **Load order**: `index.html` loads `/runtime-config.js` **before** the app bundle.
+- **Precedence**: runtime config (window) → Vite build-time env (`import.meta.env`) → defaults.
+
+Example:
+
+```js
+window.__APP_CONFIG__ = {
+  api: {
+    userBaseUrl: 'https://user-api.example.com',
+    eventBaseUrl: 'https://event-api.example.com/api/v1',
+  },
+  oauth: {
+    googleClientId: '...',
+    facebookAppId: '...',
+    redirectBase: 'https://frontend.example.com',
+  },
+}
+```
+
+In containerized deployments you can generate/overwrite `dist/runtime-config.js` at startup (entrypoint script) from environment variables, so you can ship **one image** across environments without rebuilding.
+
 ## Expanding the ESLint configuration
 
 If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
