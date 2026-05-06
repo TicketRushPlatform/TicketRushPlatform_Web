@@ -73,6 +73,8 @@ jobs:
 
             cd ${{ secrets.DEPLOY_PATH }}
 
+            export WEB_TAG=${{ github.sha }}
+
             docker pull $IMAGE
 
             docker compose up -d web
