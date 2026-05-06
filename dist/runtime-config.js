@@ -1,12 +1,12 @@
 window.__APP_CONFIG__ = window.__APP_CONFIG__ ?? {
   api: {
-    userBaseUrl: '',
-    eventBaseUrl: '',
+    userBaseUrl: '/user-api',
+    eventBaseUrl: '/event-api/api/v1',
   },
   oauth: {
-    googleClientId: '',
+    googleClientId: '64832597305-4ck1svh88e5ptudtadtgco8s0664s9s6.apps.googleusercontent.com',
     facebookAppId: '',
-    redirectBase: '',
+    redirectBase: 'https://159.223.38.173.nip.io/app/', 
   },
 }
 
