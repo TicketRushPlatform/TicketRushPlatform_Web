@@ -45,6 +45,7 @@ export function SeatMapDesignerPage() {
   })
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSeats((current) => rebuildSeatGrid(rows, cols, current))
   }, [rows, cols])
 

@@ -49,6 +49,7 @@ export function DiscoveryPage() {
   }, [])
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setFeaturedIndex(0)
   }, [events.length])
 
@@ -551,11 +552,13 @@ function DateFilterCalendar({
 
   useEffect(() => {
     if (!value) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setVisibleMonth(getMonthStartFromISO(value))
   }, [value])
 
   useEffect(() => {
     if (value || !availableDates.length) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setVisibleMonth(getMonthStartFromISO(availableDates[0]))
   }, [availableDates, value])
 

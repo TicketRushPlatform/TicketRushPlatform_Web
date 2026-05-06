@@ -103,8 +103,9 @@ export function AuthPage({ initialMode = 'login' }: { initialMode?: AuthMode }) 
         }
         navigate('/login', { replace: true })
       } finally {
-        if (cancelled) return
-        setIsOAuthProcessing(false)
+        if (!cancelled) {
+          setIsOAuthProcessing(false)
+        }
       }
     })()
 

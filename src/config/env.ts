@@ -3,8 +3,8 @@ const DEFAULT_EVENT_API_BASE_URL = '/event-api/api/v1'
 
 function getRuntimeConfig(): AppRuntimeConfig | undefined {
   if (typeof window === 'undefined') return undefined
-  const globalAny = window as any
-  return globalAny.__APP_CONFIG__ as AppRuntimeConfig | undefined
+  const globalAny = window as unknown as { __APP_CONFIG__?: AppRuntimeConfig }
+  return globalAny.__APP_CONFIG__
 }
 
 const runtimeConfig = getRuntimeConfig()
@@ -30,7 +30,6 @@ function requireInProd(name: string, value: string | undefined): string | undefi
   if (viteEnv.MODE === 'production' && !value) {
     // Centralized warning for missing required configuration in production
     // Consumers can still handle undefined gracefully in UI.
-    // eslint-disable-next-line no-console
     console.error(`[Config] Missing required config value: ${name}`)
   }
   return value

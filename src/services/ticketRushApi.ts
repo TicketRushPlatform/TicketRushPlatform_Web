@@ -321,7 +321,7 @@ async function seedCatalogFromBackend(): Promise<void> {
         endTime: apiShowtime.end_time,
         seatMapName: apiShowtime.seat_map_name,
         queueEnabled: Boolean(item.is_flash_sale),
-        queueLimit: Boolean(item.is_flash_sale) ? 1000 : undefined,
+        queueLimit: item.is_flash_sale ? 1000 : undefined,
         cinemaName: kind === 'MOVIE' ? apiShowtime.venue : undefined,
         screenName: kind === 'MOVIE' ? 'Screen 1' : undefined,
         format: kind === 'MOVIE' ? '2D' : undefined,
