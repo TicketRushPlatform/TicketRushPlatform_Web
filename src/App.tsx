@@ -58,7 +58,7 @@ function App() {
         </NavLink>
 
         <nav className="site-nav" aria-label="Primary navigation">
-          <NavLink to="/">Explore</NavLink>
+          <NavLink to="/">Discovery</NavLink>
           {auth.isAuthenticated ? (
             <>
               <NavLink to="/tickets">
