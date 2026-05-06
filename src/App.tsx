@@ -4,26 +4,51 @@ import { Link, Navigate, NavLink, Route, Routes, useLocation } from 'react-route
 import { useAuth } from './auth/AuthContext'
 import { AdminCreateEventPage } from './pages/AdminCreateEventPage'
 import { AdminDashboardPage } from './pages/AdminDashboardPage'
+import { AdminLayout } from './pages/AdminLayout'
 import { AuthPage } from './pages/AuthPage'
 import { CheckoutPage } from './pages/CheckoutPage'
 import { DiscoveryPage } from './pages/DiscoveryPage'
 import { EventDetailPage } from './pages/EventDetailPage'
 import { ForbiddenPage } from './pages/ForbiddenPage'
+import { ForgotPasswordPage } from './pages/ForgotPasswordPage'
 import { MyTicketsPage } from './pages/MyTicketsPage'
 import { NotificationsPage } from './pages/NotificationsPage'
 import { ProfilePage } from './pages/ProfilePage'
 import { SeatMapDesignerPage } from './pages/SeatMapDesignerPage'
 import { SeatSelectionPage } from './pages/SeatSelectionPage'
 import { SoundSearchPage } from './pages/SoundSearchPage'
+import { UserManagementPage } from './pages/UserManagementPage'
 import { WaitingRoomPage } from './pages/WaitingRoomPage'
+// App router v2 - admin sidebar layout
 
 function App() {
   const auth = useAuth()
   const location = useLocation()
   const isAdminRoute = location.pathname.startsWith('/admin')
 
+  if (isAdminRoute) {
+    return (
+      <Routes>
+        <Route
+          path="/admin"
+          element={
+            <RequireAdmin>
+              <AdminLayout />
+            </RequireAdmin>
+          }
+        >
+          <Route index element={<AdminDashboardPage />} />
+          <Route path="events/new" element={<AdminCreateEventPage />} />
+          <Route path="events/:eventId/edit" element={<AdminCreateEventPage />} />
+          <Route path="events/new/seat-map" element={<SeatMapDesignerPage />} />
+          <Route path="users" element={<UserManagementPage />} />
+        </Route>
+      </Routes>
+    )
+  }
+
   return (
-    <main className={isAdminRoute ? 'app-shell admin-shell-frame' : 'app-shell'}>
+    <main className="app-shell">
       <header className="site-header">
         <NavLink className="brand-mark" to="/" aria-label="TicketRush home">
           <span>
@@ -44,12 +69,7 @@ function App() {
                 <Bell size={18} strokeWidth={2.5} />
                 Notifications
               </NavLink>
-              {auth.isAdmin && (
-                <>
-                  <NavLink to="/admin">Admin</NavLink>
-                  <NavLink to="/admin/events/new/seat-map">Seat Maps</NavLink>
-                </>
-              )}
+
               <NavLink className="user-nav-link" to="/profile">
                 {auth.user?.avatar_url ? <img src={auth.user.avatar_url} alt="" /> : <CircleUserRound size={18} strokeWidth={2.5} />}
                 <span>{auth.user?.full_name ?? 'Profile'}</span>
@@ -58,9 +78,6 @@ function App() {
           ) : (
             <>
               <NavLink to="/login">Sign in</NavLink>
-              <NavLink className="nav-cta" to="/register">
-                Create account
-              </NavLink>
             </>
           )}
         </nav>
@@ -82,10 +99,7 @@ function App() {
         <Route path="/auth/callback/facebook" element={<AuthPage initialMode="login" />} />
         <Route path="/login" element={<AuthPage initialMode="login" />} />
         <Route path="/register" element={<AuthPage initialMode="register" />} />
-        <Route path="/admin" element={<RequireAdmin><AdminDashboardPage /></RequireAdmin>} />
-        <Route path="/admin/events/new" element={<RequireAdmin><AdminCreateEventPage /></RequireAdmin>} />
-        <Route path="/admin/events/:eventId/edit" element={<RequireAdmin><AdminCreateEventPage /></RequireAdmin>} />
-        <Route path="/admin/events/new/seat-map" element={<RequireAdmin><SeatMapDesignerPage /></RequireAdmin>} />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
       </Routes>
     </main>
   )

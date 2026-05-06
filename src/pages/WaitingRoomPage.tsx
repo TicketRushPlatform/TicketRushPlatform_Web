@@ -90,6 +90,14 @@ export function WaitingRoomPage() {
 
           <div className="queue-progress-wrap">
             <p>Queue progress</p>
+            <div className="queue-progress-percentage">
+              <span>{Math.round(progress)}%</span>
+              <div className="queue-progress-bar-wrap">
+                <div className="queue-progress-bar-fill" style={{ width: `${Math.max(progress, 8)}%` }}>
+                  {Math.round(progress)}%
+                </div>
+              </div>
+            </div>
             <div className="queue-progress" aria-label="Queue progress">
               <span style={{ width: `${progress}%` }} />
             </div>

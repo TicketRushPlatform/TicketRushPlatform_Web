@@ -1,5 +1,6 @@
 import {
   ArrowLeft,
+  BarChart3,
   CalendarDays,
   CircleDollarSign,
   Clock,
@@ -7,7 +8,6 @@ import {
   LoaderCircle,
   MapPin,
   Music2,
-  Percent,
   ShieldCheck,
   Ticket,
   UsersRound,
@@ -97,13 +97,16 @@ export function EventDetailPage() {
         Explore Tickets
       </Link>
 
-      <article className="event-detail-hero">
-        <div className="event-detail-poster">
-          <img src={event.imageUrl} alt="" />
-          <span className="status-pill">{event.status}</span>
-        </div>
+      <article className={`event-detail-hero ${!event.imageUrl ? 'no-poster' : ''}`}>
+        {event.imageUrl && (
+          <div className="event-detail-poster">
+            <img src={event.imageUrl} alt="" />
+            <span className="status-pill">{event.status}</span>
+          </div>
+        )}
 
         <div className="event-detail-info">
+          {!event.imageUrl && <span className="status-pill inline">{event.status}</span>}
           <p className="eyebrow">
             {event.kind === 'MOVIE' ? <Clapperboard size={18} strokeWidth={2.5} /> : <Ticket size={18} strokeWidth={2.5} />}
             {event.kind === 'MOVIE' ? 'Movie Ticketing' : event.category}
@@ -134,12 +137,14 @@ export function EventDetailPage() {
       </article>
 
       {event.kind === 'MOVIE' && event.movie && (
-        <section className="movie-detail-grid" aria-label="Movie details">
-          <div className="admin-card trailer-card">
-            <div className="trailer-frame">
-              <iframe title={`${event.name} trailer`} src={event.movie.trailerUrl} allowFullScreen />
+        <section className={`movie-detail-grid ${!event.movie.trailerUrl ? 'no-trailer' : ''}`} aria-label="Movie details">
+          {event.movie.trailerUrl && (
+            <div className="admin-card trailer-card">
+              <div className="trailer-frame">
+                <iframe title={`${event.name} trailer`} src={event.movie.trailerUrl} allowFullScreen />
+              </div>
             </div>
-          </div>
+          )}
           <div className="admin-card movie-meta-card">
             <h2>Movie profile</h2>
             <p>{event.movie.synopsis}</p>
@@ -157,19 +162,21 @@ export function EventDetailPage() {
               ))}
             </div>
           </div>
-          <div className="admin-card soundtrack-card">
-            <h2>
-              <Music2 size={22} />
-              Soundtracks
-            </h2>
-            <div className="soundtrack-list">
-              {(event.soundtracks ?? []).map((track) => (
-                <span key={track.id}>
-                  {track.title} · {track.artist}
-                </span>
-              ))}
+          {(event.soundtracks && event.soundtracks.length > 0) && (
+            <div className="admin-card soundtrack-card">
+              <h2>
+                <Music2 size={22} />
+                Soundtracks
+              </h2>
+              <div className="soundtrack-list">
+                {event.soundtracks.map((track) => (
+                  <span key={track.id}>
+                    {track.title} · {track.artist}
+                  </span>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
         </section>
       )}
 
@@ -208,7 +215,7 @@ export function EventDetailPage() {
               </div>
               <div className="showtime-fill">
                 <p>
-                  <Percent size={16} strokeWidth={2.5} />
+                  <BarChart3 size={16} strokeWidth={2.5} />
                   {fillPercent}% full
                 </p>
                 <div className="capacity-bar" aria-label={`${fillPercent}% full`}>

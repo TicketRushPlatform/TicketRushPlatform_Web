@@ -10,7 +10,7 @@ import {
   UserRound
 } from 'lucide-react'
 import { useEffect, useState, type FormEvent } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import { ApiError, oauthFacebook, oauthGoogle } from '../services/userApi'
 import { saveTokens } from '../services/authStorage'
@@ -353,7 +353,7 @@ export function AuthPage({ initialMode = 'login' }: { initialMode?: AuthMode }) 
               />
               <span>Remember me</span>
             </label>
-            <a href="#forgot">Forgot password?</a>
+            <Link to="/forgot-password">Forgot password?</Link>
           </div>
         ) : (
           <label className="check-row terms-row">

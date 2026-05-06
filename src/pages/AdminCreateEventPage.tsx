@@ -275,26 +275,26 @@ export function AdminCreateEventPage() {
                         onChange={(value) => updateShowtime(index, { seatMapId: value })}
                       />
                     </label>
-                    <label className="field">
-                      <span>Queue</span>
-                      <div className="queue-inline-controls">
-                        <button
-                          className={showtime.queueEnabled ? 'secondary-button queue-toggle-button active' : 'secondary-button queue-toggle-button'}
-                          type="button"
-                          onClick={() => updateShowtime(index, { queueEnabled: !showtime.queueEnabled })}
-                        >
-                          {showtime.queueEnabled ? 'Waiting room on' : 'Waiting room off'}
-                        </button>
-                        <input
-                          type="number"
-                          min={50}
-                          max={10000}
-                          value={showtime.queueLimit}
-                          disabled={!showtime.queueEnabled}
-                          onChange={(event) => updateShowtime(index, { queueLimit: Number(event.target.value) || 50 })}
-                        />
-                      </div>
-                    </label>
+                    <div className="queue-inline-wrapper">
+                      <span className="queue-label">Queue</span>
+                      <button
+                        className={`queue-circular-toggle ${showtime.queueEnabled ? 'active' : ''}`}
+                        type="button"
+                        onClick={() => updateShowtime(index, { queueEnabled: !showtime.queueEnabled })}
+                        aria-label="Toggle Queue"
+                      >
+                        <span className="toggle-thumb" />
+                      </button>
+                      <input
+                        className="queue-limit-input"
+                        type="number"
+                        min={50}
+                        max={10000}
+                        value={showtime.queueLimit}
+                        disabled={!showtime.queueEnabled}
+                        onChange={(event) => updateShowtime(index, { queueLimit: Number(event.target.value) || 50 })}
+                      />
+                    </div>
                     <button
                       className="secondary-button"
                       type="button"
