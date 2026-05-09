@@ -261,3 +261,14 @@ export async function uploadMyMedia(accessToken: string, payload: UploadMediaPay
 
   return data as UploadMediaResponse
 }
+
+export type UserStats = {
+  total_users: number
+  active_users: number
+  blocked_users: number
+  admin_count: number
+}
+
+export async function getUserStats(accessToken: string): Promise<UserStats> {
+  return requestJson<UserStats>('/users/stats', { method: 'GET', accessToken })
+}

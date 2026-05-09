@@ -1120,3 +1120,49 @@ export function resetDemoState(): void {
   }
   catalogBootstrapPromise = null
 }
+
+// ---- Admin Dashboard Real API ----
+
+export type AdminDashboardRevenuePoint = {
+  date: string
+  revenue: number
+}
+
+export type AdminDashboardStats = {
+  // Booking counts
+  total_bookings: number
+  paid_bookings: number
+  holding_bookings: number
+  canceled_bookings: number
+  expired_bookings: number
+
+  // Seat / ticket counts
+  tickets_sold: number
+  total_seats: number
+  available_seats: number
+  holding_seats: number
+  sold_seats: number
+
+  // Revenue
+  total_revenue: number
+
+  // 7-day daily revenue series (oldest → newest)
+  revenue_series: AdminDashboardRevenuePoint[]
+}
+
+export async function getAdminDashboardStats(): Promise<AdminDashboardStats> {
+  return bookingApiRequest<AdminDashboardStats>('/admin/dashboard')
+}
+
+export async function getTotalEventsCount(): Promise<number> {
+  const token = loadTokens()?.access_token
+  const response = await fetch(`${config.api.eventBaseUrl}/events?page=1&page_size=1`, {
+    headers: {
+      accept: 'application/json',
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+    },
+  })
+  if (!response.ok) return 0
+  const payload = (await response.json()) as { total_items?: number }
+  return payload.total_items ?? 0
+}
