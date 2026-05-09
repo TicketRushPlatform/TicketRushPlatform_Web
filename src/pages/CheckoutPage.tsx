@@ -1,6 +1,6 @@
 import { AlertCircle, ArrowLeft, CheckCircle2, Clock, CreditCard, LoaderCircle, LockKeyhole } from 'lucide-react'
-import { useEffect, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react'
+import { Link, useBeforeUnload, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { cancelBooking, confirmBooking, formatCurrency, getBookingDetail } from '../services/ticketRushApi'
 import type { Booking, Seat, Showtime, TicketRushEvent } from '../types'
 
@@ -14,20 +14,33 @@ type CheckoutDetail = {
 export function CheckoutPage() {
   const { bookingId } = useParams()
   const navigate = useNavigate()
+  const location = useLocation()
   const [detail, setDetail] = useState<CheckoutDetail | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isConfirming, setIsConfirming] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [now, setNow] = useState<number>(() => new Date().getTime())
+  const [isLeaveModalOpen, setIsLeaveModalOpen] = useState(false)
+  const autoCancelOnLeaveRef = useRef(true)
+  const leavePayloadRef = useRef<{ bookingId?: string; canCancel: boolean }>({ canCancel: false })
+  const pendingNavigationRef = useRef<{ type: 'path'; to: string } | { type: 'back' } | null>(null)
+  const bypassPopstateGuardRef = useRef(false)
 
   useEffect(() => {
     let cancelled = false
     ;(async () => {
       if (!bookingId) return
-      const bookingDetail = await getBookingDetail(bookingId)
-      if (cancelled) return
-      setDetail(bookingDetail ?? null)
-      setIsLoading(false)
+      try {
+        const bookingDetail = await getBookingDetail(bookingId)
+        if (cancelled) return
+        setDetail(bookingDetail ?? null)
+      } catch (err) {
+        if (cancelled) return
+        setDetail(null)
+        setError(err instanceof Error ? err.message : 'You do not have permission to access this booking.')
+      } finally {
+        if (!cancelled) setIsLoading(false)
+      }
     })()
 
     return () => {
@@ -41,18 +54,110 @@ export function CheckoutPage() {
   }, [])
 
   const remainingMs = detail?.booking.expiresAt ? Math.max(0, new Date(detail.booking.expiresAt).getTime() - now) : 0
+  const shouldWarnBeforeLeave = Boolean(detail && detail.booking.status === 'HOLDING' && remainingMs > 0 && !isConfirming)
+
+  useBeforeUnload((event) => {
+    if (!shouldWarnBeforeLeave) return
+    event.preventDefault()
+    event.returnValue = ''
+  })
+
+  useEffect(() => {
+    if (!shouldWarnBeforeLeave) return
+
+    const onDocumentClick = (event: MouseEvent) => {
+      if (event.defaultPrevented) return
+      if (event.button !== 0) return
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+      const target = event.target as Element | null
+      const anchor = target?.closest('a[href]') as HTMLAnchorElement | null
+      if (!anchor) return
+      if (anchor.target === '_blank' || anchor.hasAttribute('download')) return
+
+      const nextUrl = new URL(anchor.href, window.location.origin)
+      const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`
+      const targetPath = `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`
+      if (nextUrl.origin !== window.location.origin || targetPath === currentUrl) return
+
+      event.preventDefault()
+      pendingNavigationRef.current = { type: 'path', to: targetPath }
+      setIsLeaveModalOpen(true)
+    }
+
+    const onPopState = () => {
+      if (bypassPopstateGuardRef.current) return
+      pendingNavigationRef.current = { type: 'back' }
+      setIsLeaveModalOpen(true)
+      history.go(1)
+    }
+
+    document.addEventListener('click', onDocumentClick, true)
+    window.addEventListener('popstate', onPopState)
+    history.pushState({ checkoutGuard: true }, '', window.location.href)
+
+    return () => {
+      document.removeEventListener('click', onDocumentClick, true)
+      window.removeEventListener('popstate', onPopState)
+    }
+  }, [shouldWarnBeforeLeave, location.key])
+
+  useEffect(() => {
+    leavePayloadRef.current = {
+      bookingId,
+      canCancel: shouldWarnBeforeLeave,
+    }
+  }, [bookingId, shouldWarnBeforeLeave])
+
+  useEffect(() => {
+    return () => {
+      if (!autoCancelOnLeaveRef.current) return
+      const { bookingId: leavingBookingId, canCancel } = leavePayloadRef.current
+      if (!canCancel || !leavingBookingId) return
+      void cancelBooking(leavingBookingId)
+    }
+  }, [])
 
   useEffect(() => {
     if (!detail || detail.booking.status !== 'HOLDING') return
     if (remainingMs > 0) return
-    const timer = window.setTimeout(() => navigate(`/showtimes/${detail.booking.showtimeId}/seats`), 1200)
+    const timer = window.setTimeout(() => navigate(`/showtimes/${detail.booking.showtimeId}/seats?holdExpired=1`), 1200)
     return () => window.clearTimeout(timer)
   }, [detail, navigate, remainingMs])
 
   async function onCancel() {
     if (!bookingId || !detail) return
+    autoCancelOnLeaveRef.current = false
     await cancelBooking(bookingId)
     navigate(`/showtimes/${detail.booking.showtimeId}/seats`)
+  }
+
+  function onBackToSeatMap() {
+    if (!detail) return
+    const to = `/showtimes/${detail.booking.showtimeId}/seats`
+    if (!shouldWarnBeforeLeave) {
+      navigate(to)
+      return
+    }
+    pendingNavigationRef.current = { type: 'path', to }
+    setIsLeaveModalOpen(true)
+  }
+
+  function onStayOnCheckout() {
+    pendingNavigationRef.current = null
+    setIsLeaveModalOpen(false)
+  }
+
+  function onLeaveAndCancelHold() {
+    const pendingNavigation = pendingNavigationRef.current
+    pendingNavigationRef.current = null
+    setIsLeaveModalOpen(false)
+    if (!pendingNavigation) return
+    if (pendingNavigation.type === 'path') {
+      navigate(pendingNavigation.to)
+      return
+    }
+    bypassPopstateGuardRef.current = true
+    history.back()
   }
 
   async function onConfirm() {
@@ -61,6 +166,7 @@ export function CheckoutPage() {
     setError(null)
     try {
       await confirmBooking(bookingId)
+      autoCancelOnLeaveRef.current = false
       navigate('/tickets')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not confirm checkout.')
@@ -88,7 +194,7 @@ export function CheckoutPage() {
       <section className="state-page">
         <div className="state-block">
           <h1>Booking not found</h1>
-          <p>This seat hold may have expired or been canceled.</p>
+          <p>{error ?? 'This seat hold may have expired, been canceled, or you do not have permission to view it.'}</p>
           <Link className="secondary-button" to="/">
             <ArrowLeft size={18} strokeWidth={2.5} />
             Back to Explore
@@ -104,10 +210,10 @@ export function CheckoutPage() {
 
   return (
     <section className="checkout-page" aria-labelledby="checkout-title">
-      <Link className="secondary-button compact-link" to={`/showtimes/${detail.booking.showtimeId}/seats`}>
+      <button className="secondary-button compact-link" type="button" onClick={onBackToSeatMap}>
         <ArrowLeft size={18} strokeWidth={2.5} />
         Back to seat map
-      </Link>
+      </button>
 
       <div className="checkout-layout">
         <section className="admin-card checkout-main">
@@ -191,6 +297,27 @@ export function CheckoutPage() {
           </div>
         </aside>
       </div>
+
+      {isLeaveModalOpen && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={onStayOnCheckout}>
+          <section className="qr-modal leave-checkout-modal" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
+            <h2>Leave checkout?</h2>
+            <p>Nếu rời trang này, hệ thống sẽ tự động hủy giữ ghế hiện tại của bạn.</p>
+            <div className="checkout-actions">
+              <button className="secondary-button" type="button" onClick={onStayOnCheckout}>
+                Ở lại trang
+              </button>
+              <button className="primary-button" type="button" onClick={onLeaveAndCancelHold}>
+                Rời trang và hủy giữ ghế
+                <span>
+                  <AlertCircle size={18} strokeWidth={2.5} />
+                </span>
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </section>
   )
 }
+

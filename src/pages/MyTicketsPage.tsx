@@ -1,7 +1,8 @@
 import QRCode from 'qrcode'
 import { CalendarDays, LoaderCircle, MapPin, QrCode, TicketCheck, X } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
-import { formatCurrency, formatDate, listTickets } from '../services/ticketRushApi'
+import { useAuth } from '../auth/AuthContext'
+import { formatCurrency, formatDate, listBookingsByUser } from '../services/ticketRushApi'
 import type { Booking, Seat, Showtime, Ticket, TicketRushEvent } from '../types'
 
 type TicketBundle = {
@@ -13,6 +14,7 @@ type TicketBundle = {
 }
 
 export function MyTicketsPage() {
+  const auth = useAuth()
   const [bundles, setBundles] = useState<TicketBundle[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [activeTicket, setActiveTicket] = useState<{ ticket: Ticket; event: TicketRushEvent; seat?: Seat } | null>(null)
@@ -20,7 +22,7 @@ export function MyTicketsPage() {
   useEffect(() => {
     let cancelled = false
     ;(async () => {
-      const ticketBundles = await listTickets()
+      const ticketBundles = await listBookingsByUser(auth.user?.id)
       if (cancelled) return
       setBundles(ticketBundles)
       setIsLoading(false)
@@ -29,7 +31,7 @@ export function MyTicketsPage() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [auth.user?.id])
 
   if (isLoading) {
     return (
@@ -45,6 +47,8 @@ export function MyTicketsPage() {
     )
   }
 
+  const paidBundles = bundles.filter((bundle) => bundle.booking.status === 'PAID' && bundle.tickets.length > 0)
+
   return (
     <section className="tickets-page" aria-labelledby="tickets-title">
       <div className="admin-hero">
@@ -56,15 +60,14 @@ export function MyTicketsPage() {
           <h1 id="tickets-title">QR e-tickets.</h1>
         </div>
       </div>
-
-      {bundles.length === 0 ? (
+      {paidBundles.length === 0 ? (
         <div className="state-block">
           <h2>No paid tickets yet</h2>
-          <p>Choose an event or movie, hold seats, and confirm checkout to issue QR tickets.</p>
+          <p>Confirm checkout to issue QR tickets and view them here.</p>
         </div>
       ) : (
         <div className="ticket-bundle-grid">
-          {bundles.map((bundle) =>
+          {paidBundles.map((bundle) =>
             bundle.tickets.map((ticket) => {
               const seat = bundle.seats.find((item) => item.id === ticket.seatId)
               return (

@@ -1,6 +1,7 @@
 import {
   AlertCircle,
   Ban,
+  ChevronDown,
   CheckCircle2,
   Edit3,
   Plus,
@@ -11,43 +12,29 @@ import {
   UsersRound,
   X,
 } from 'lucide-react'
-import { useMemo, useState, type FormEvent } from 'react'
-
-type MockUser = {
-  id: string
-  full_name: string
-  email: string
-  role: 'admin' | 'user'
-  status: 'active' | 'banned' | 'suspended'
-  avatar_url: string | null
-  created_at: string
-}
-
-const initialMockUsers: MockUser[] = [
-  { id: 'u1', full_name: 'Admin TicketRush', email: 'admin@ticketrush.local', role: 'admin', status: 'active', avatar_url: null, created_at: '2025-01-15' },
-  { id: 'u2', full_name: 'Nguyễn Văn An', email: 'an.nguyen@example.com', role: 'user', status: 'active', avatar_url: null, created_at: '2025-02-20' },
-  { id: 'u3', full_name: 'Trần Thị Bình', email: 'binh.tran@example.com', role: 'user', status: 'active', avatar_url: null, created_at: '2025-03-05' },
-  { id: 'u4', full_name: 'Lê Hoàng Cường', email: 'cuong.le@example.com', role: 'user', status: 'suspended', avatar_url: null, created_at: '2025-03-12' },
-  { id: 'u5', full_name: 'Phạm Minh Duy', email: 'duy.pham@example.com', role: 'user', status: 'banned', avatar_url: null, created_at: '2025-04-01' },
-  { id: 'u6', full_name: 'Hoàng Thị Hà', email: 'ha.hoang@example.com', role: 'user', status: 'active', avatar_url: null, created_at: '2025-04-10' },
-  { id: 'u7', full_name: 'Vũ Quốc Khánh', email: 'khanh.vu@example.com', role: 'user', status: 'active', avatar_url: null, created_at: '2025-04-18' },
-  { id: 'u8', full_name: 'Đỗ Thanh Lan', email: 'lan.do@example.com', role: 'user', status: 'active', avatar_url: null, created_at: '2025-05-01' },
-]
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { useAuth } from '../auth/AuthContext'
+import { ApiError, createUserByAdmin, deleteUserByAdmin, listRolePermissions, listUsers, updateUserByAdmin, type User } from '../services/userApi'
 
 type ModalMode = 'create' | 'edit' | null
 
 export function UserManagementPage() {
-  const [users, setUsers] = useState<MockUser[]>(initialMockUsers)
+  const auth = useAuth()
+  const [users, setUsers] = useState<User[]>([])
   const [query, setQuery] = useState('')
   const [modalMode, setModalMode] = useState<ModalMode>(null)
-  const [editingUser, setEditingUser] = useState<MockUser | null>(null)
+  const [editingUser, setEditingUser] = useState<User | null>(null)
   const [notice, setNotice] = useState<{ tone: 'success' | 'error'; text: string } | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   // Form state
   const [formName, setFormName] = useState('')
   const [formEmail, setFormEmail] = useState('')
-  const [formRole, setFormRole] = useState<'admin' | 'user'>('user')
-  const [formStatus, setFormStatus] = useState<'active' | 'banned' | 'suspended'>('active')
+  const [formPassword, setFormPassword] = useState('')
+  const [roleOptions, setRoleOptions] = useState<string[]>([])
+  const [formRole, setFormRole] = useState('PROFILE_OWNER')
+  const [formStatus, setFormStatus] = useState<'ACTIVE' | 'BLOCKED'>('ACTIVE')
 
   const filteredUsers = useMemo(() => {
     const keyword = query.trim().toLowerCase()
@@ -58,27 +45,61 @@ export function UserManagementPage() {
   const stats = useMemo(
     () => ({
       total: users.length,
-      active: users.filter((u) => u.status === 'active').length,
-      banned: users.filter((u) => u.status === 'banned').length,
-      admins: users.filter((u) => u.role === 'admin').length,
+      active: users.filter((u) => u.status === 'ACTIVE').length,
+      banned: users.filter((u) => u.status === 'BLOCKED').length,
+      owners: users.filter((u) => ['PROFILE_OWNER', 'EVENT_OWNER', 'BOOKING_OWNER'].includes((u.role ?? '').toUpperCase())).length,
     }),
     [users],
   )
 
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      if (!auth.tokens?.access_token) {
+        setIsLoading(false)
+        return
+      }
+      try {
+        const [fetchedUsers, fetchedRoles] = await Promise.all([
+          listUsers(auth.tokens.access_token),
+          listRolePermissions(auth.tokens.access_token),
+        ])
+        if (!cancelled) {
+          setUsers(fetchedUsers)
+          const roleNames = fetchedRoles.map((role) => role.name)
+          setRoleOptions(roleNames)
+          if (roleNames.length > 0) setFormRole(roleNames[0])
+        }
+      } catch (err) {
+        if (!cancelled) {
+          const message = err instanceof ApiError ? err.message : 'Unable to load users.'
+          setNotice({ tone: 'error', text: message })
+        }
+      } finally {
+        if (!cancelled) setIsLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [auth.tokens?.access_token])
+
   function openCreateModal() {
     setFormName('')
     setFormEmail('')
-    setFormRole('user')
-    setFormStatus('active')
+    setFormPassword('')
+    setFormRole(roleOptions[0] ?? 'PROFILE_OWNER')
+    setFormStatus('ACTIVE')
     setEditingUser(null)
     setModalMode('create')
   }
 
-  function openEditModal(user: MockUser) {
+  function openEditModal(user: User) {
     setFormName(user.full_name)
-    setFormEmail(user.email)
-    setFormRole(user.role)
-    setFormStatus(user.status)
+    setFormEmail(user.email ?? '')
+    setFormPassword('')
+    setFormRole(user.role?.toUpperCase() ?? (roleOptions[0] ?? 'PROFILE_OWNER'))
+    setFormStatus((user.status?.toUpperCase() === 'BLOCKED' ? 'BLOCKED' : 'ACTIVE') as 'ACTIVE' | 'BLOCKED')
     setEditingUser(user)
     setModalMode('edit')
   }
@@ -88,45 +109,67 @@ export function UserManagementPage() {
     setEditingUser(null)
   }
 
-  function onSubmitForm(event: FormEvent<HTMLFormElement>) {
+  async function onSubmitForm(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (modalMode === 'create') {
-      const newUser: MockUser = {
-        id: `u${Date.now()}`,
-        full_name: formName.trim(),
-        email: formEmail.trim(),
-        role: formRole,
-        status: formStatus,
-        avatar_url: null,
-        created_at: new Date().toISOString().slice(0, 10),
+    if (!modalMode || !auth.tokens?.access_token) return
+    setIsSubmitting(true)
+    try {
+      if (modalMode === 'create') {
+        const created = await createUserByAdmin(auth.tokens.access_token, {
+          email: formEmail.trim(),
+          password: formPassword,
+          full_name: formName.trim(),
+          role: formRole,
+          status: formStatus,
+        })
+        setUsers((current) => [created, ...current])
+        setNotice({ tone: 'success', text: `User "${created.full_name}" created successfully.` })
+      } else if (editingUser) {
+        const updated = await updateUserByAdmin(auth.tokens.access_token, editingUser.id, {
+          full_name: formName.trim(),
+          role: formRole,
+          status: formStatus,
+        })
+        setUsers((current) => current.map((u) => (u.id === editingUser.id ? updated : u)))
+        setNotice({ tone: 'success', text: `User "${updated.full_name}" updated successfully.` })
       }
-      setUsers((current) => [...current, newUser])
-      setNotice({ tone: 'success', text: `User "${formName.trim()}" created successfully.` })
-    } else if (modalMode === 'edit' && editingUser) {
-      setUsers((current) =>
-        current.map((u) =>
-          u.id === editingUser.id ? { ...u, full_name: formName.trim(), email: formEmail.trim(), role: formRole, status: formStatus } : u,
-        ),
-      )
-      setNotice({ tone: 'success', text: `User "${formName.trim()}" updated successfully.` })
+      closeModal()
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : modalMode === 'create' ? 'Unable to create user.' : 'Unable to update user.'
+      setNotice({ tone: 'error', text: message })
+    } finally {
+      setIsSubmitting(false)
+      setTimeout(() => setNotice(null), 4000)
     }
-    closeModal()
+  }
+
+  async function toggleBan(user: User) {
+    if (!auth.tokens?.access_token) return
+    try {
+      const nextStatus = user.status === 'BLOCKED' ? 'ACTIVE' : 'BLOCKED'
+      const updated = await updateUserByAdmin(auth.tokens.access_token, user.id, { status: nextStatus })
+      setUsers((current) => current.map((u) => (u.id === user.id ? updated : u)))
+      setNotice({
+        tone: 'success',
+        text: nextStatus === 'BLOCKED' ? `User "${user.full_name}" has been banned.` : `User "${user.full_name}" has been unbanned.`,
+      })
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : 'Unable to update user status.'
+      setNotice({ tone: 'error', text: message })
+    }
     setTimeout(() => setNotice(null), 4000)
   }
 
-  function toggleBan(user: MockUser) {
-    const nextStatus = user.status === 'banned' ? 'active' : 'banned'
-    setUsers((current) => current.map((u) => (u.id === user.id ? { ...u, status: nextStatus } : u)))
-    setNotice({
-      tone: 'success',
-      text: nextStatus === 'banned' ? `User "${user.full_name}" has been banned.` : `User "${user.full_name}" has been unbanned.`,
-    })
-    setTimeout(() => setNotice(null), 4000)
-  }
-
-  function deleteUser(user: MockUser) {
-    setUsers((current) => current.filter((u) => u.id !== user.id))
-    setNotice({ tone: 'success', text: `User "${user.full_name}" has been deleted.` })
+  async function deleteUser(user: User) {
+    if (!auth.tokens?.access_token) return
+    try {
+      await deleteUserByAdmin(auth.tokens.access_token, user.id)
+      setUsers((current) => current.filter((u) => u.id !== user.id))
+      setNotice({ tone: 'success', text: `User "${user.full_name}" has been deleted.` })
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : 'Unable to delete user.'
+      setNotice({ tone: 'error', text: message })
+    }
     setTimeout(() => setNotice(null), 4000)
   }
 
@@ -185,8 +228,8 @@ export function UserManagementPage() {
           <span className="metric-icon" style={{ background: 'var(--tertiary)' }}>
             <ShieldCheck size={22} strokeWidth={2.5} />
           </span>
-          <p>Admins</p>
-          <strong>{stats.admins}</strong>
+          <p>Owner roles</p>
+          <strong>{stats.owners}</strong>
         </article>
       </div>
 
@@ -211,7 +254,16 @@ export function UserManagementPage() {
             <span role="columnheader">Status</span>
             <span role="columnheader">Actions</span>
           </div>
-          {filteredUsers.map((user) => (
+          {isLoading ? (
+            <div className="user-table-row" role="row">
+              <span role="cell" />
+              <span role="cell">Loading users...</span>
+              <span role="cell" />
+              <span role="cell" />
+              <span role="cell" />
+              <span role="cell" />
+            </div>
+          ) : filteredUsers.map((user) => (
             <div className="user-table-row" role="row" key={user.id}>
               <div className="user-avatar-cell" role="cell">
                 {user.avatar_url ? <img src={user.avatar_url} alt="" /> : <UserRound size={18} strokeWidth={2.5} />}
@@ -221,16 +273,16 @@ export function UserManagementPage() {
                 {user.email}
               </span>
               <span role="cell">
-                <span className={`user-status-badge ${user.role === 'admin' ? 'active' : ''}`}>{user.role}</span>
+                <span className={`user-status-badge ${user.role === 'ADMIN' ? 'active' : ''}`}>{user.role}</span>
               </span>
               <span role="cell">
-                <span className={`user-status-badge ${user.status}`}>{user.status}</span>
+                <span className={`user-status-badge ${user.status === 'BLOCKED' ? 'banned' : 'active'}`}>{user.status}</span>
               </span>
               <div className="user-action-buttons" role="cell">
                 <button type="button" title="Edit user" onClick={() => openEditModal(user)}>
                   <Edit3 size={14} strokeWidth={2.5} />
                 </button>
-                <button type="button" title={user.status === 'banned' ? 'Unban user' : 'Ban user'} onClick={() => toggleBan(user)}>
+                <button type="button" title={user.status === 'BLOCKED' ? 'Unban user' : 'Ban user'} onClick={() => toggleBan(user)}>
                   <Ban size={14} strokeWidth={2.5} />
                 </button>
                 <button className="danger" type="button" title="Delete user" onClick={() => deleteUser(user)}>
@@ -250,7 +302,7 @@ export function UserManagementPage() {
             onSubmit={onSubmitForm}
           >
             <div className="user-modal-header">
-              <h2>{modalMode === 'create' ? 'Create new user' : 'Edit user'}</h2>
+              <h2>{modalMode === 'create' ? 'Create user' : 'Edit user'}</h2>
               <button className="icon-button" type="button" onClick={closeModal} style={{ width: 40, minHeight: 40 }}>
                 <X size={18} strokeWidth={2.5} />
               </button>
@@ -263,37 +315,134 @@ export function UserManagementPage() {
 
             <label className="field">
               <span>Email</span>
-              <input type="email" placeholder="user@example.com" value={formEmail} onChange={(e) => setFormEmail(e.target.value)} required />
+              <input
+                type="email"
+                placeholder="user@example.com"
+                value={formEmail}
+                onChange={(e) => setFormEmail(e.target.value)}
+                required
+                disabled={modalMode === 'edit'}
+              />
             </label>
+
+            {modalMode === 'create' && (
+              <label className="field">
+                <span>Password</span>
+                <input
+                  type="password"
+                  placeholder="At least 8 characters"
+                  value={formPassword}
+                  onChange={(e) => setFormPassword(e.target.value)}
+                  minLength={8}
+                  required
+                />
+              </label>
+            )}
 
             <label className="field">
               <span>Role</span>
-              <select value={formRole} onChange={(e) => setFormRole(e.target.value as 'admin' | 'user')}>
-                <option value="user">User</option>
-                <option value="admin">Admin</option>
-              </select>
+              <OptionPicker
+                value={formRole}
+                valueLabel={formRole}
+                ariaLabel="Choose role"
+                options={roleOptions.map((role) => ({ value: role, label: role }))}
+                onChange={(value) => setFormRole(value)}
+              />
             </label>
 
             <label className="field">
               <span>Status</span>
-              <select value={formStatus} onChange={(e) => setFormStatus(e.target.value as 'active' | 'banned' | 'suspended')}>
-                <option value="active">Active</option>
-                <option value="suspended">Suspended</option>
-                <option value="banned">Banned</option>
-              </select>
+              <OptionPicker
+                value={formStatus}
+                valueLabel={formStatus}
+                ariaLabel="Choose status"
+                options={[
+                  { value: 'ACTIVE', label: 'ACTIVE' },
+                  { value: 'BLOCKED', label: 'BLOCKED' },
+                ]}
+                onChange={(value) => setFormStatus(value as 'ACTIVE' | 'BLOCKED')}
+              />
             </label>
 
             <div className="user-modal-actions">
               <button className="secondary-button" type="button" onClick={closeModal} style={{ justifyContent: 'center' }}>
                 Cancel
               </button>
-              <button className="primary-button compact-button" type="submit">
-                {modalMode === 'create' ? 'Create user' : 'Save changes'}
+              <button className="primary-button compact-button" type="submit" disabled={isSubmitting}>
+                {isSubmitting ? 'Saving...' : modalMode === 'create' ? 'Create user' : 'Save changes'}
               </button>
             </div>
           </form>
         </div>
       )}
     </section>
+  )
+}
+
+function OptionPicker({
+  value,
+  valueLabel,
+  options,
+  ariaLabel,
+  onChange,
+}: {
+  value: string
+  valueLabel: string
+  options: Array<{ value: string; label: string }>
+  ariaLabel: string
+  onChange: (value: string) => void
+}) {
+  const [isOpen, setIsOpen] = useState(false)
+  const wrapperRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    if (!isOpen) return
+    function handleClickOutside(event: MouseEvent) {
+      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
+        setIsOpen(false)
+      }
+    }
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === 'Escape') setIsOpen(false)
+    }
+    window.addEventListener('mousedown', handleClickOutside)
+    window.addEventListener('keydown', handleEscape)
+    return () => {
+      window.removeEventListener('mousedown', handleClickOutside)
+      window.removeEventListener('keydown', handleEscape)
+    }
+  }, [isOpen])
+
+  return (
+    <div className={isOpen ? 'filter-select open' : 'filter-select'} ref={wrapperRef}>
+      <button
+        className="filter-select-trigger"
+        type="button"
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
+        aria-label={ariaLabel}
+        onClick={() => setIsOpen((open) => !open)}
+      >
+        <span>{valueLabel}</span>
+        <ChevronDown size={18} strokeWidth={2.5} />
+      </button>
+      {isOpen && (
+        <div className="filter-select-menu" role="listbox" aria-label={ariaLabel}>
+          {options.map((option) => (
+            <button
+              className={option.value === value ? 'filter-option active' : 'filter-option'}
+              key={option.value}
+              type="button"
+              onClick={() => {
+                onChange(option.value)
+                setIsOpen(false)
+              }}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }

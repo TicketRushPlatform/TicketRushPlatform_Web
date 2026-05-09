@@ -1,5 +1,6 @@
 const DEFAULT_USER_API_BASE_URL = '/user-api'
 const DEFAULT_EVENT_API_BASE_URL = '/event-api/api/v1'
+const DEFAULT_BOOKING_API_BASE_URL = '/booking-api/api/v1'
 
 function getRuntimeConfig(): AppRuntimeConfig | undefined {
   if (typeof window === 'undefined') return undefined
@@ -45,6 +46,11 @@ const eventApiBaseUrl =
     pickString(runtimeConfig?.api?.eventBaseUrl, viteEnv.VITE_EVENT_API_URL) ?? DEFAULT_EVENT_API_BASE_URL,
   ) ?? DEFAULT_EVENT_API_BASE_URL
 
+const bookingApiBaseUrl =
+  normalizeBaseUrl(
+    pickString(runtimeConfig?.api?.bookingBaseUrl, viteEnv.VITE_BOOKING_API_URL) ?? DEFAULT_BOOKING_API_BASE_URL,
+  ) ?? DEFAULT_BOOKING_API_BASE_URL
+
 const googleClientId = requireInProd(
   'oauth.googleClientId',
   pickString(runtimeConfig?.oauth?.googleClientId, viteEnv.VITE_GOOGLE_CLIENT_ID),
@@ -68,6 +74,7 @@ export const config = {
   api: {
     userBaseUrl: userApiBaseUrl,
     eventBaseUrl: eventApiBaseUrl,
+    bookingBaseUrl: bookingApiBaseUrl,
   },
   oauth: {
     googleClientId,
@@ -75,4 +82,3 @@ export const config = {
     redirectBase,
   },
 } as const
-

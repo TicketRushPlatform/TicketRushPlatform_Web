@@ -1,8 +1,8 @@
 import { AlertCircle, ArrowLeft, CalendarDays, CheckCircle2, Clock, LoaderCircle, MapPin, RotateCcw, Ticket } from 'lucide-react'
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
-import { formatCurrency, formatDate, getEvent, getSeatsStatus, getShowtime, holdSeats } from '../services/ticketRushApi'
+import { formatCurrency, formatDate, getEvent, getSeatsStatus, getShowtime, holdSeats, subscribeSeatsStatus } from '../services/ticketRushApi'
 import type { Seat, SeatClass, Showtime, TicketRushEvent } from '../types'
 
 type RowGroup = {
@@ -13,6 +13,7 @@ type RowGroup = {
 export function SeatSelectionPage() {
   const { showtimeId } = useParams()
   const navigate = useNavigate()
+  const location = useLocation()
   const auth = useAuth()
   const [event, setEvent] = useState<TicketRushEvent | null>(null)
   const [showtime, setShowtime] = useState<Showtime | null>(null)
@@ -21,6 +22,12 @@ export function SeatSelectionPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [isHolding, setIsHolding] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+  const seatsRef = useRef<Seat[]>([])
+
+  useEffect(() => {
+    seatsRef.current = seats
+  }, [seats])
 
   async function loadSeats(silent = false) {
     if (!showtimeId) return
@@ -51,11 +58,56 @@ export function SeatSelectionPage() {
   }, [showtimeId])
 
   useEffect(() => {
+    const searchParams = new URLSearchParams(location.search)
+    if (searchParams.get('holdExpired') !== '1') return
+
+    setNotice('Seat hold expired because payment time exceeded 10 minutes. Please select seats again.')
+    searchParams.delete('holdExpired')
+    const nextSearch = searchParams.toString()
+    navigate(
+      {
+        pathname: location.pathname,
+        search: nextSearch ? `?${nextSearch}` : '',
+      },
+      { replace: true },
+    )
+  }, [location.pathname, location.search, navigate])
+
+  useEffect(() => {
+    if (!showtimeId) return
+
+    const unsubscribe = subscribeSeatsStatus(
+      showtimeId,
+      (status) => {
+        const nextSeats = seatsRef.current.map((seat) => {
+          const realtimeSeat = status.seats.find((item) => item.id === seat.id || (item.row === seat.row && item.number === seat.number))
+          if (!realtimeSeat) return seat
+          return {
+            ...seat,
+            status: realtimeSeat.status,
+            seatClass: realtimeSeat.seatClass,
+            price: realtimeSeat.price ?? seat.price,
+            expiresAt: realtimeSeat.expiresAt,
+          }
+        })
+        seatsRef.current = nextSeats
+        setSeats(nextSeats)
+        const unavailableSeatIds = new Set(nextSeats.filter((seat) => seat.status !== 'AVAILABLE').map((seat) => seat.id))
+        setSelectedSeatIds((current) => current.filter((seatId) => !unavailableSeatIds.has(seatId)))
+      },
+      () => {
+        void loadSeats(true)
+      },
+    )
+
     const timer = window.setInterval(() => {
       void loadSeats(true)
-    }, 2000)
+    }, 10000)
 
-    return () => window.clearInterval(timer)
+    return () => {
+      unsubscribe()
+      window.clearInterval(timer)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showtimeId])
 
@@ -112,7 +164,7 @@ export function SeatSelectionPage() {
             <LoaderCircle className="spin" size={34} strokeWidth={2.5} />
           </div>
           <h1>Loading seat map</h1>
-          <p>Seat status updates automatically through polling.</p>
+          <p>Seat status updates automatically in realtime.</p>
         </div>
       </section>
     )
@@ -227,6 +279,15 @@ export function SeatSelectionPage() {
                 <AlertCircle size={18} strokeWidth={2.5} />
               </span>
               <p>{error}</p>
+            </div>
+          )}
+
+          {notice && (
+            <div className="auth-notice info">
+              <span className="auth-notice-icon">
+                <AlertCircle size={18} strokeWidth={2.5} />
+              </span>
+              <p>{notice}</p>
             </div>
           )}
 

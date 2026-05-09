@@ -119,6 +119,28 @@ export type UpdateMePayload = {
   bio?: string | null
 }
 
+export type AdminUpdateUserPayload = {
+  full_name?: string
+  role?: string
+  status?: 'ACTIVE' | 'BLOCKED'
+}
+
+export type AdminCreateUserPayload = {
+  email: string
+  password: string
+  full_name: string
+  role?: string
+  status?: 'ACTIVE' | 'BLOCKED'
+}
+
+export type RolePermissionSet = {
+  name: string
+  system: boolean
+  permissions: string[]
+  created_at: string
+  updated_at: string
+}
+
 export type OAuthPayload = {
   id_token?: string
   access_token?: string
@@ -169,6 +191,50 @@ export async function updateMe(accessToken: string, payload: UpdateMePayload): P
 
 export async function getUser(accessToken: string, userId: string): Promise<User> {
   return requestJson<User>(`/users/${encodeURIComponent(userId)}`, { method: 'GET', accessToken })
+}
+
+export async function listUsers(accessToken: string): Promise<User[]> {
+  return requestJson<User[]>('/users', { method: 'GET', accessToken })
+}
+
+export async function updateUserByAdmin(accessToken: string, userId: string, payload: AdminUpdateUserPayload): Promise<User> {
+  return requestJson<User>(`/users/${encodeURIComponent(userId)}`, { method: 'PATCH', accessToken, body: payload })
+}
+
+export async function createUserByAdmin(accessToken: string, payload: AdminCreateUserPayload): Promise<User> {
+  return requestJson<User>('/users', { method: 'POST', accessToken, body: payload })
+}
+
+export async function deleteUserByAdmin(accessToken: string, userId: string): Promise<void> {
+  return requestJson<void>(`/users/${encodeURIComponent(userId)}`, { method: 'DELETE', accessToken })
+}
+
+export async function listRolePermissions(accessToken: string): Promise<RolePermissionSet[]> {
+  return requestJson<RolePermissionSet[]>('/roles', { method: 'GET', accessToken })
+}
+
+export async function listPermissionCatalog(accessToken: string): Promise<string[]> {
+  const response = await requestJson<{ permissions: string[] }>('/roles/permissions-catalog', { method: 'GET', accessToken })
+  return response.permissions
+}
+
+export async function createRoleWithPermissions(
+  accessToken: string,
+  payload: { name: string; permissions: string[] },
+): Promise<RolePermissionSet> {
+  return requestJson<RolePermissionSet>('/roles', { method: 'POST', accessToken, body: payload })
+}
+
+export async function updateRolePermissions(
+  accessToken: string,
+  roleName: string,
+  payload: { permissions_add?: string[]; permissions_remove?: string[]; permissions?: string[] },
+): Promise<RolePermissionSet> {
+  return requestJson<RolePermissionSet>(`/roles/${encodeURIComponent(roleName)}`, { method: 'PATCH', accessToken, body: payload })
+}
+
+export async function deleteRole(accessToken: string, roleName: string): Promise<void> {
+  return requestJson<void>(`/roles/${encodeURIComponent(roleName)}`, { method: 'DELETE', accessToken })
 }
 
 export async function uploadMyMedia(accessToken: string, payload: UploadMediaPayload): Promise<UploadMediaResponse> {

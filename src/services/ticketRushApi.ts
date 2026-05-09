@@ -1,5 +1,6 @@
 import { generateSeats } from '../data/demoTicketRush'
 import { config } from '../config/env'
+import { loadTokens } from './authStorage'
 import type {
   Booking,
   DashboardMetrics,
@@ -10,6 +11,7 @@ import type {
   NotificationItem,
   QueueSession,
   Seat,
+  SeatClass,
   SeatSectionInput,
   Showtime,
   SoundSearchLog,
@@ -22,7 +24,6 @@ import type {
 } from '../types'
 
 const STORAGE_KEY = 'ticketrush.mock.state.v2'
-const HOLD_DURATION_MS = 10 * 60 * 1000
 const DEFAULT_USER_ID = 'demo-customer'
 let catalogBootstrapPromise: Promise<void> | null = null
 function createEmptyState(): TicketRushState {
@@ -145,12 +146,146 @@ type SeatStatusResponse = {
   sold: number
 }
 
+type BookingSeatStatusDTO = {
+  seat_id: string
+  row: string
+  number: number
+  seat_class: SeatClass
+  status: Seat['status']
+  price?: string
+  expires_at?: string
+}
+
+export type RealtimeSeatStatus = {
+  showtimeId: string
+  seats: Array<{
+    id: string
+    row: string
+    number: number
+    seatClass: SeatClass
+    status: Seat['status']
+    price?: number
+    expiresAt?: string
+  }>
+  total: number
+  available: number
+  holding: number
+  sold: number
+}
+
+type BookingSeatStatusResponse = {
+  showtime_id: string
+  seats: BookingSeatStatusDTO[]
+  total: number
+  available: number
+  holding: number
+  sold: number
+}
+
+type SeatStatusSocketMessage = {
+  type: 'seat_status'
+  data: BookingSeatStatusResponse
+}
+
+type ApiEnvelope<T> = {
+  data: T
+  message?: string
+}
+
+type BookingApiResponse = {
+  id: string
+  status: Booking['status']
+  showtime_id: string
+  expires_at?: string
+  items: Array<{
+    seat_id: string
+    row: string
+    number: number
+    price: string
+  }>
+  total_amount: string
+  created_at: string
+}
+
+type BookingListResponse = {
+  data: BookingApiResponse[]
+  page: number
+  page_size: number
+  total_items: number
+  total_pages: number
+}
+
 type BookingDetail = {
   booking: Booking
   event: TicketRushEvent
   showtime: Showtime
   seats: Seat[]
   tickets: Ticket[]
+}
+
+function buildTicketsFromBooking(booking: BookingApiResponse, event: TicketRushEvent, status: Booking['status']): Ticket[] {
+  if (status !== 'PAID') return []
+  return booking.items.map((item, index) => {
+    const ticketCode = `TR-${booking.id.slice(-6).toUpperCase()}-${index + 1}`
+    return {
+      id: `ticket-${booking.id}-${item.seat_id}`,
+      bookingId: booking.id,
+      showtimeId: booking.showtime_id,
+      eventId: event.id,
+      seatId: item.seat_id,
+      ticketCode,
+      qrPayload: JSON.stringify({
+        ticketCode,
+        bookingId: booking.id,
+        event: event.name,
+        seat: `${item.row}${item.number}`,
+        kind: event.kind,
+      }),
+      issuedAt: booking.created_at,
+    }
+  })
+}
+
+async function mapBookingApiToDetail(bookingResponse: BookingApiResponse, userId = DEFAULT_USER_ID): Promise<BookingDetail | undefined> {
+  const showtime = await getShowtime(bookingResponse.showtime_id)
+  if (!showtime) return undefined
+  const event = await getEvent(showtime.eventId)
+  if (!event) return undefined
+  const seatsStatus = await getSeatsStatus(bookingResponse.showtime_id)
+  const seats = bookingResponse.items
+    .map((item) => {
+      const seat = seatsStatus.seats.find((statusSeat) => statusSeat.id === item.seat_id)
+      if (seat) return seat
+      return {
+        id: item.seat_id,
+        showtimeId: bookingResponse.showtime_id,
+        section: 'Seat',
+        row: item.row,
+        number: item.number,
+        seatClass: 'STANDARD' as const,
+        price: Number(item.price),
+        status: bookingResponse.status === 'PAID' ? ('SOLD' as const) : ('HOLDING' as const),
+      }
+    })
+    .sort((first, second) => first.row.localeCompare(second.row) || first.number - second.number)
+
+  return {
+    booking: {
+      id: bookingResponse.id,
+      userId,
+      showtimeId: bookingResponse.showtime_id,
+      eventId: showtime.eventId,
+      seatIds: bookingResponse.items.map((item) => item.seat_id),
+      status: bookingResponse.status,
+      totalAmount: Number(bookingResponse.total_amount),
+      expiresAt: bookingResponse.expires_at,
+      createdAt: bookingResponse.created_at,
+    },
+    event,
+    showtime,
+    seats,
+    tickets: buildTicketsFromBooking(bookingResponse, event, bookingResponse.status),
+  }
 }
 
 function delay(ms = 220): Promise<void> {
@@ -181,8 +316,12 @@ function writeState(state: TicketRushState): void {
 }
 
 async function fetchEventApi<T>(path: string): Promise<T> {
+  const token = loadTokens()?.access_token
   const response = await fetch(`${config.api.eventBaseUrl}${path.startsWith('/') ? path : `/${path}`}`, {
-    headers: { accept: 'application/json' },
+    headers: {
+      accept: 'application/json',
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+    },
   })
   if (!response.ok) throw new Error('Unable to fetch event catalog from backend.')
   const payload = (await response.json()) as { data: T }
@@ -190,11 +329,13 @@ async function fetchEventApi<T>(path: string): Promise<T> {
 }
 
 async function postEventApi<T>(path: string, body: unknown): Promise<T> {
+  const token = loadTokens()?.access_token
   const response = await fetch(`${config.api.eventBaseUrl}${path.startsWith('/') ? path : `/${path}`}`, {
     method: 'POST',
     headers: {
       accept: 'application/json',
       'content-type': 'application/json',
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
     },
     body: JSON.stringify(body),
   })
@@ -206,11 +347,13 @@ async function postEventApi<T>(path: string, body: unknown): Promise<T> {
 }
 
 async function putEventApi<T>(path: string, body: unknown): Promise<T> {
+  const token = loadTokens()?.access_token
   const response = await fetch(`${config.api.eventBaseUrl}${path.startsWith('/') ? path : `/${path}`}`, {
     method: 'PUT',
     headers: {
       accept: 'application/json',
       'content-type': 'application/json',
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
     },
     body: JSON.stringify(body),
   })
@@ -222,16 +365,123 @@ async function putEventApi<T>(path: string, body: unknown): Promise<T> {
 }
 
 async function putEventApiNoResponse(path: string, body: unknown): Promise<void> {
+  const token = loadTokens()?.access_token
   const response = await fetch(`${config.api.eventBaseUrl}${path.startsWith('/') ? path : `/${path}`}`, {
     method: 'PUT',
     headers: {
       accept: 'application/json',
       'content-type': 'application/json',
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
     },
     body: JSON.stringify(body),
   })
   if (!response.ok) {
     throw new Error('Unable to update showtimes from admin panel.')
+  }
+}
+
+async function bookingApiRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = loadTokens()?.access_token
+  const response = await fetch(`${config.api.bookingBaseUrl}${path.startsWith('/') ? path : `/${path}`}`, {
+    headers: {
+      accept: 'application/json',
+      ...(init?.body ? { 'content-type': 'application/json' } : {}),
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+      ...(init?.headers ?? {}),
+    },
+    ...init,
+  })
+
+  if (!response.ok) {
+    let message = 'Booking service request failed.'
+    try {
+      const payload = (await response.json()) as { message?: string }
+      if (payload.message) message = payload.message
+    } catch {
+      // ignore parse error and keep default message
+    }
+    throw new Error(message)
+  }
+
+  if (response.status === 204) {
+    return undefined as T
+  }
+
+  const payload = (await response.json()) as ApiEnvelope<T>
+  return payload.data
+}
+
+function bookingWebSocketUrl(path: string): string {
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`
+  const baseUrl = config.api.bookingBaseUrl
+  const raw = `${baseUrl}${normalizedPath}`
+
+  if (/^https?:\/\//i.test(raw)) {
+    return raw.replace(/^http/i, 'ws')
+  }
+
+  const origin = typeof window === 'undefined' ? 'http://localhost' : window.location.origin
+  const url = new URL(raw, origin)
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+  return url.toString()
+}
+
+function normalizeRealtimeStatus(response: BookingSeatStatusResponse): RealtimeSeatStatus {
+  return {
+    showtimeId: response.showtime_id,
+    seats: response.seats.map((seat) => ({
+      id: seat.seat_id,
+      row: seat.row,
+      number: seat.number,
+      seatClass: seat.seat_class,
+      status: seat.status,
+      price: seat.price ? Number(seat.price) : undefined,
+      expiresAt: seat.expires_at,
+    })),
+    total: response.total,
+    available: response.available,
+    holding: response.holding,
+    sold: response.sold,
+  }
+}
+
+export function subscribeSeatsStatus(showtimeId: string, onStatus: (status: RealtimeSeatStatus) => void, onError?: () => void): () => void {
+  if (typeof WebSocket === 'undefined') return () => {}
+
+  let closed = false
+  let reconnectTimer: number | undefined
+  let socket: WebSocket | undefined
+
+  const connect = () => {
+    socket = new WebSocket(bookingWebSocketUrl(`/showtimes/${showtimeId}/seats/ws`))
+
+    socket.onmessage = (event) => {
+      try {
+        const message = JSON.parse(event.data as string) as SeatStatusSocketMessage
+        if (message.type === 'seat_status') {
+          onStatus(normalizeRealtimeStatus(message.data))
+        }
+      } catch {
+        onError?.()
+      }
+    }
+
+    socket.onerror = () => {
+      onError?.()
+    }
+
+    socket.onclose = () => {
+      if (closed) return
+      reconnectTimer = window.setTimeout(connect, 2000)
+    }
+  }
+
+  connect()
+
+  return () => {
+    closed = true
+    if (reconnectTimer) window.clearTimeout(reconnectTimer)
+    socket?.close()
   }
 }
 
@@ -434,19 +684,6 @@ function toEventItem(event: TicketRushEvent): EventItem {
   }
 }
 
-function getBookingDetailFromState(state: TicketRushState, bookingId: string): BookingDetail | undefined {
-  const booking = state.bookings.find((item) => item.id === bookingId)
-  if (!booking) return undefined
-
-  const event = state.events.find((item) => item.id === booking.eventId)
-  const showtime = state.showtimes.find((item) => item.id === booking.showtimeId)
-  if (!event || !showtime) return undefined
-
-  const seats = state.seats.filter((seat) => booking.seatIds.includes(seat.id))
-  const tickets = state.tickets.filter((ticket) => ticket.bookingId === bookingId)
-  return { booking, event: enrichEvent(state, event), showtime, seats, tickets }
-}
-
 function revenueForEvent(state: TicketRushState, event: TicketRushEvent): number {
   return state.seats
     .filter((seat) => seat.showtimeId === event.showtimeId && seat.status === 'SOLD')
@@ -510,150 +747,102 @@ export async function getShowtimesByEvent(eventId: string): Promise<Showtime[]> 
 }
 
 export async function getSeatsStatus(showtimeId: string): Promise<SeatStatusResponse> {
-  await ensureCatalogBootstrap()
-  await delay(150)
-  const state = getFreshState()
-  const seats = state.seats
-    .filter((seat) => seat.showtimeId === showtimeId)
-    .sort((first, second) => first.row.localeCompare(second.row) || first.number - second.number)
-  const counts = seatCounts(state, showtimeId)
+  const response = await bookingApiRequest<BookingSeatStatusResponse>(`/showtimes/${encodeURIComponent(showtimeId)}/seats`)
+  const normalized = normalizeRealtimeStatus(response)
 
   return {
-    showtimeId,
-    seats,
-    total: counts.total,
-    available: counts.available,
-    holding: counts.holding,
-    sold: counts.sold,
+    showtimeId: normalized.showtimeId,
+    seats: normalized.seats
+      .map((seat) => ({
+        id: seat.id,
+        showtimeId: normalized.showtimeId,
+        section: 'Seat',
+        row: seat.row,
+        number: seat.number,
+        seatClass: seat.seatClass,
+        price: seat.price ?? 0,
+        status: seat.status,
+        expiresAt: seat.expiresAt,
+      }))
+      .sort((first, second) => first.row.localeCompare(second.row) || first.number - second.number),
+    total: normalized.total,
+    available: normalized.available,
+    holding: normalized.holding,
+    sold: normalized.sold,
   }
 }
 
 export async function holdSeats(showtimeId: string, seatIds: string[], userId = DEFAULT_USER_ID): Promise<Booking> {
-  await ensureCatalogBootstrap()
-  await delay(260)
-  const state = getFreshState()
-  const seats = state.seats.filter((seat) => seat.showtimeId === showtimeId && seatIds.includes(seat.id))
-
   if (seatIds.length === 0) throw new Error('Select at least one seat.')
-  if (seats.length !== seatIds.length || seats.some((seat) => seat.status !== 'AVAILABLE')) {
-    throw new Error('One or more seats were just held by another buyer. Please choose again.')
-  }
 
-  const showtime = state.showtimes.find((item) => item.id === showtimeId)
-  if (!showtime) throw new Error('Showtime was not found.')
+  const response = await bookingApiRequest<BookingApiResponse>('/bookings/hold', {
+    method: 'POST',
+    body: JSON.stringify({
+      user_id: userId,
+      showtime_id: showtimeId,
+      seat_ids: seatIds,
+    }),
+  })
+  const showtime = await getShowtime(response.showtime_id)
 
-  const expiresAt = new Date(new Date().getTime() + HOLD_DURATION_MS).toISOString()
-  const booking: Booking = {
-    id: createId('booking'),
+  return {
+    id: response.id,
     userId,
-    showtimeId,
-    eventId: showtime.eventId,
-    seatIds,
-    status: 'HOLDING',
-    totalAmount: seats.reduce((sum, seat) => sum + seat.price, 0),
-    expiresAt,
-    createdAt: new Date().toISOString(),
+    showtimeId: response.showtime_id,
+    eventId: showtime?.eventId ?? '',
+    seatIds: response.items.map((item) => item.seat_id),
+    status: response.status,
+    totalAmount: Number(response.total_amount),
+    expiresAt: response.expires_at,
+    createdAt: response.created_at,
   }
-
-  const nextState: TicketRushState = {
-    ...state,
-    bookings: [booking, ...state.bookings],
-    seats: state.seats.map((seat) =>
-      seatIds.includes(seat.id) ? { ...seat, status: 'HOLDING', bookingId: booking.id, expiresAt } : seat,
-    ),
-  }
-
-  writeState(nextState)
-  return booking
 }
 
 export async function getBookingDetail(bookingId: string): Promise<BookingDetail | undefined> {
-  await ensureCatalogBootstrap()
-  await delay(160)
-  const state = getFreshState()
-  return getBookingDetailFromState(state, bookingId)
+  const bookingResponse = await bookingApiRequest<BookingApiResponse>(`/bookings/${encodeURIComponent(bookingId)}`)
+  return mapBookingApiToDetail(bookingResponse)
 }
 
 export async function cancelBooking(bookingId: string): Promise<void> {
-  await ensureCatalogBootstrap()
-  await delay(180)
-  const state = getFreshState()
-  writeState({
-    ...state,
-    bookings: state.bookings.map((booking) =>
-      booking.id === bookingId && booking.status === 'HOLDING' ? { ...booking, status: 'CANCELED', expiresAt: undefined } : booking,
-    ),
-    seats: state.seats.map((seat) =>
-      seat.bookingId === bookingId && seat.status === 'HOLDING'
-        ? { ...seat, status: 'AVAILABLE', bookingId: undefined, expiresAt: undefined }
-        : seat,
-    ),
-  })
+  await bookingApiRequest(`/bookings/${encodeURIComponent(bookingId)}/cancel`, { method: 'POST' })
 }
 
 export async function confirmBooking(bookingId: string): Promise<BookingDetail> {
-  await ensureCatalogBootstrap()
-  await delay(320)
-  const state = getFreshState()
-  const detail = getBookingDetailFromState(state, bookingId)
-  if (!detail) throw new Error('Booking was not found.')
-  if (detail.booking.status !== 'HOLDING') throw new Error('This booking is no longer waiting for checkout.')
-
-  const now = new Date().toISOString()
-  const tickets: Ticket[] = detail.seats.map((seat, index) => {
-    const ticketCode = `TR-${bookingId.slice(-6).toUpperCase()}-${index + 1}`
-    return {
-      id: createId('ticket'),
-      bookingId,
-      showtimeId: detail.booking.showtimeId,
-      eventId: detail.booking.eventId,
-      seatId: seat.id,
-      ticketCode,
-      qrPayload: JSON.stringify({
-        ticketCode,
-        bookingId,
-        event: detail.event.name,
-        seat: `${seat.row}${seat.number}`,
-        kind: detail.event.kind,
-      }),
-      issuedAt: now,
-    }
-  })
-
-  const nextState: TicketRushState = {
-    ...state,
-    bookings: state.bookings.map((booking) => (booking.id === bookingId ? { ...booking, status: 'PAID', expiresAt: undefined } : booking)),
-    seats: state.seats.map((seat) => (seat.bookingId === bookingId ? { ...seat, status: 'SOLD', expiresAt: undefined } : seat)),
-    tickets: [...tickets, ...state.tickets.filter((ticket) => ticket.bookingId !== bookingId)],
-    notifications: [
-      {
-        id: createId('notice'),
-        userId: detail.booking.userId,
-        title: 'Tickets issued',
-        message: `${tickets.length} QR ticket${tickets.length > 1 ? 's' : ''} for ${detail.event.name} are ready.`,
-        tone: 'SUCCESS',
-        read: false,
-        createdAt: now,
-        link: '/tickets',
-      },
-      ...state.notifications,
-    ],
-  }
-
-  writeState(nextState)
-  const confirmed = getBookingDetailFromState(nextState, bookingId)
-  if (!confirmed) throw new Error('Could not issue e-tickets.')
-  return confirmed
+  await bookingApiRequest(`/bookings/${encodeURIComponent(bookingId)}/confirm`, { method: 'POST' })
+  const detail = await getBookingDetail(bookingId)
+  if (!detail) throw new Error('Could not load booking after confirmation.')
+  return detail
 }
 
-export async function listTickets(): Promise<BookingDetail[]> {
+export async function listTickets(userId = DEFAULT_USER_ID): Promise<BookingDetail[]> {
   await ensureCatalogBootstrap()
-  await delay(180)
-  const state = getFreshState()
-  return state.bookings
-    .filter((booking) => booking.status === 'PAID')
-    .map((booking) => getBookingDetailFromState(state, booking.id))
-    .filter((detail): detail is BookingDetail => Boolean(detail))
+  const token = loadTokens()?.access_token
+  const response = await fetch(`${config.api.bookingBaseUrl}/bookings/user/${encodeURIComponent(userId)}?page=1&page_size=50`, {
+    headers: {
+      accept: 'application/json',
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+    },
+  })
+  if (!response.ok) throw new Error('Unable to load your tickets from booking service.')
+  const payload = (await response.json()) as BookingListResponse
+  const paidBookings = payload.data.filter((booking) => booking.status === 'PAID')
+  const details = await Promise.all(paidBookings.map((booking) => mapBookingApiToDetail(booking, userId)))
+  return details.filter((detail): detail is BookingDetail => Boolean(detail))
+}
+
+export async function listBookingsByUser(userId = DEFAULT_USER_ID): Promise<BookingDetail[]> {
+  await ensureCatalogBootstrap()
+  const token = loadTokens()?.access_token
+  const response = await fetch(`${config.api.bookingBaseUrl}/bookings/user/${encodeURIComponent(userId)}?page=1&page_size=50`, {
+    headers: {
+      accept: 'application/json',
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+    },
+  })
+  if (!response.ok) throw new Error('Unable to load your booking history from booking service.')
+  const payload = (await response.json()) as BookingListResponse
+  const details = await Promise.all(payload.data.map((booking) => mapBookingApiToDetail(booking, userId)))
+  return details.filter((detail): detail is BookingDetail => Boolean(detail))
 }
 
 export async function joinQueue(showtimeId: string): Promise<QueueSession> {

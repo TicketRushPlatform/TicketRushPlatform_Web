@@ -14,6 +14,7 @@ import { ForgotPasswordPage } from './pages/ForgotPasswordPage'
 import { MyTicketsPage } from './pages/MyTicketsPage'
 import { NotificationsPage } from './pages/NotificationsPage'
 import { ProfilePage } from './pages/ProfilePage'
+import { PermissionManagementPage } from './pages/PermissionManagementPage'
 import { SeatMapDesignerPage } from './pages/SeatMapDesignerPage'
 import { SeatSelectionPage } from './pages/SeatSelectionPage'
 import { SoundSearchPage } from './pages/SoundSearchPage'
@@ -42,6 +43,7 @@ function App() {
           <Route path="events/:eventId/edit" element={<AdminCreateEventPage />} />
           <Route path="events/new/seat-map" element={<SeatMapDesignerPage />} />
           <Route path="users" element={<UserManagementPage />} />
+          <Route path="permissions" element={<PermissionManagementPage />} />
         </Route>
       </Routes>
     )

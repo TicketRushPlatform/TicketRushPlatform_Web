@@ -3029,6 +3029,49 @@ textarea:focus {
   box-shadow: 10px 10px 0 var(--foreground);
 }
 
+.leave-checkout-modal {
+  justify-items: stretch;
+  gap: 18px;
+  width: min(100%, 520px);
+  padding: 28px;
+  border-radius: 28px;
+  box-shadow: 12px 12px 0 var(--foreground);
+}
+
+.leave-checkout-modal h2 {
+  margin: 0;
+  text-align: center;
+  font-size: clamp(2rem, 3.2vw, 2.4rem);
+  line-height: 1.02;
+}
+
+.leave-checkout-modal p {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 1.02rem;
+  line-height: 1.45;
+  text-align: left;
+}
+
+.checkout-actions {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  align-items: center;
+}
+
+.checkout-actions .secondary-button,
+.checkout-actions .primary-button {
+  width: 100%;
+  justify-content: center;
+  min-height: 52px;
+  margin-top: 0;
+}
+
+.checkout-actions .secondary-button {
+  background: color-mix(in srgb, var(--card) 92%, var(--muted));
+}
+
 .create-event-page {
   display: grid;
   gap: 24px;
@@ -4496,6 +4539,110 @@ textarea:focus {
   gap: 10px;
 }
 
+/* Permission page */
+.permission-page .user-stats-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  max-width: 520px;
+}
+
+.permission-create-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(320px, 2fr) auto;
+  gap: 14px;
+  align-items: end;
+}
+
+.permission-catalog-field {
+  min-width: 0;
+}
+
+.permission-catalog {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-height: 146px;
+  overflow-y: auto;
+  padding: 8px;
+  border: 2px solid var(--soft-border);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--muted) 42%, #fff);
+}
+
+.permission-create-button {
+  align-self: end;
+}
+
+.permission-role-list {
+  display: grid;
+  gap: 12px;
+}
+
+.permission-role-card {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  border: 2px solid var(--soft-border);
+  border-radius: var(--radius-md);
+  background: var(--card);
+}
+
+.permission-role-card.active {
+  border-color: var(--accent);
+  box-shadow: 6px 6px 0 color-mix(in srgb, var(--accent) 48%, #cbd5e1);
+}
+
+.permission-role-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.permission-role-name {
+  font-size: 1.2rem;
+  font-family: var(--font-heading);
+}
+
+.permission-role-meta {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-weight: 700;
+  font-size: 0.82rem;
+}
+
+.permission-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.permission-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.permission-chip-remove {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: inherit;
+  padding: 0;
+  display: grid;
+  place-items: center;
+}
+
+.permission-role-actions {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.permission-select {
+  min-height: 44px;
+}
+
 .nav-cta {
   background: var(--accent) !important;
   color: var(--accent-foreground) !important;
@@ -4548,6 +4695,22 @@ textarea:focus {
 
   .forgot-password-page {
     grid-template-columns: 1fr;
+  }
+
+  .permission-create-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .permission-create-button {
+    width: 100%;
+  }
+
+  .permission-role-actions {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .permission-focus-button {
+    grid-column: span 2;
   }
 }
 

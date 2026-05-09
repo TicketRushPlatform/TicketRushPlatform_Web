@@ -5,6 +5,7 @@ declare global {
     api?: {
       userBaseUrl?: string
       eventBaseUrl?: string
+      bookingBaseUrl?: string
     }
     oauth?: {
       googleClientId?: string
@@ -17,4 +18,3 @@ declare global {
     __APP_CONFIG__?: AppRuntimeConfig
   }
 }
-

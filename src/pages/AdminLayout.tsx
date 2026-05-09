@@ -1,6 +1,7 @@
 import {
   BarChart3,
   CalendarPlus,
+  KeyRound,
   LogOut,
   Map,
   ShieldCheck,
@@ -49,6 +50,10 @@ export function AdminLayout() {
         <NavLink className={({ isActive }) => `admin-sidebar-link ${isActive ? 'active' : ''}`} to="/admin/users">
           <UsersRound size={18} strokeWidth={2.5} />
           Users
+        </NavLink>
+        <NavLink className={({ isActive }) => `admin-sidebar-link ${isActive ? 'active' : ''}`} to="/admin/permissions">
+          <KeyRound size={18} strokeWidth={2.5} />
+          Permissions
         </NavLink>
 
         <div style={{ marginTop: 'auto', paddingTop: 22, display: 'grid', gap: 6 }}>
