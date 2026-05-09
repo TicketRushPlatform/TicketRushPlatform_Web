@@ -42,6 +42,7 @@ function createEmptyState(): TicketRushState {
 
 type EventApiResponse = {
   id: string
+  creator_id: string
   name: string
   description: string
   duration_minutes: number
@@ -59,6 +60,7 @@ type EventApiResponse = {
   age_rating?: string | null
   release_date?: string | null
   language?: string | null
+  max_tickets_per_booking?: number | null
 }
 
 type ShowtimeApiResponse = {
@@ -107,6 +109,7 @@ export type CreateEventPayload = {
   format?: string
   movie?: MovieMetadata
   soundtracks?: Array<Omit<Soundtrack, 'id' | 'movieEventId'>>
+  maxTicketsPerBooking?: number | null
 }
 
 type CreateEventApiRequest = {
@@ -127,6 +130,7 @@ type CreateEventApiRequest = {
   age_rating?: string
   release_date?: string
   language?: string
+  max_tickets_per_booking?: number | null
 }
 
 type ReplaceShowtimesApiRequest = Array<{
@@ -535,6 +539,7 @@ async function seedCatalogFromBackend(): Promise<void> {
 
     const event: TicketRushEvent = {
       id: item.id,
+      creatorId: item.creator_id ?? '',
       kind,
       showtimeId: primaryShowtime.id,
       name: item.name,
@@ -558,6 +563,7 @@ async function seedCatalogFromBackend(): Promise<void> {
       isFlashSale: Boolean(item.is_flash_sale),
       movie: normalizeMovieMetadata(item),
       soundtracks: kind === 'MOVIE' ? [] : undefined,
+      maxTicketsPerBooking: item.max_tickets_per_booking ?? null,
     }
     events.push(event)
 
@@ -663,6 +669,7 @@ function enrichEvent(state: TicketRushState, event: TicketRushEvent): TicketRush
 function toEventItem(event: TicketRushEvent): EventItem {
   return {
     id: event.id,
+    creatorId: event.creatorId,
     kind: event.kind,
     showtimeId: event.showtimeId,
     name: event.name,
@@ -681,6 +688,7 @@ function toEventItem(event: TicketRushEvent): EventItem {
     isFlashSale: event.isFlashSale,
     movie: event.movie,
     soundtracks: event.soundtracks,
+    maxTicketsPerBooking: event.maxTicketsPerBooking,
   }
 }
 
@@ -907,6 +915,7 @@ export async function createEvent(payload: CreateEventPayload): Promise<TicketRu
     age_rating: payload.kind === 'MOVIE' ? payload.movie?.ageRating : undefined,
     release_date: payload.kind === 'MOVIE' ? `${payload.date}T00:00:00Z` : undefined,
     language: payload.kind === 'MOVIE' ? 'Vietnamese' : undefined,
+    max_tickets_per_booking: payload.maxTicketsPerBooking ?? null,
   }
   const created = await postEventApi<EventApiResponse>('/events', apiPayload)
   if (payload.showtimes?.length) {
@@ -956,6 +965,7 @@ export async function updateEvent(eventId: string, payload: CreateEventPayload):
     age_rating: payload.kind === 'MOVIE' ? payload.movie?.ageRating : undefined,
     release_date: payload.kind === 'MOVIE' ? `${payload.date}T00:00:00Z` : undefined,
     language: payload.kind === 'MOVIE' ? 'Vietnamese' : undefined,
+    max_tickets_per_booking: payload.maxTicketsPerBooking ?? null,
   }
   await putEventApi<EventApiResponse>(`/events/${encodeURIComponent(eventId)}`, apiPayload)
   if (payload.showtimes?.length) {

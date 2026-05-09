@@ -49,6 +49,7 @@ const movieSoundtracks = {
 const events: TicketRushEvent[] = [
   {
     id: 'aurora-pop-live',
+    creatorId: 'sys-demo',
     showtimeId: 'st-aurora-pop-live',
     kind: 'EVENT',
     name: 'Aurora Pop Live',
@@ -71,6 +72,7 @@ const events: TicketRushEvent[] = [
   },
   {
     id: 'city-finals-night',
+    creatorId: 'sys-demo',
     showtimeId: 'st-city-finals-night',
     kind: 'EVENT',
     name: 'City Finals Night',
@@ -93,6 +95,7 @@ const events: TicketRushEvent[] = [
   },
   {
     id: 'little-moon-stage',
+    creatorId: 'sys-demo',
     showtimeId: 'st-little-moon-stage',
     kind: 'EVENT',
     name: 'Little Moon Stage',
@@ -115,6 +118,7 @@ const events: TicketRushEvent[] = [
   },
   {
     id: 'skyward-dreams-imax',
+    creatorId: 'sys-demo',
     showtimeId: 'st-skyward-dreams-imax',
     kind: 'MOVIE',
     name: 'Skyward Dreams',
@@ -147,6 +151,7 @@ const events: TicketRushEvent[] = [
   },
   {
     id: 'echoes-of-saturn',
+    creatorId: 'sys-demo',
     showtimeId: 'st-echoes-of-saturn',
     kind: 'MOVIE',
     name: 'Echoes of Saturn',
@@ -179,6 +184,7 @@ const events: TicketRushEvent[] = [
   },
   {
     id: 'midnight-cafe-screening',
+    creatorId: 'sys-demo',
     showtimeId: 'st-midnight-cafe-screening',
     kind: 'MOVIE',
     name: 'Midnight Cafe',

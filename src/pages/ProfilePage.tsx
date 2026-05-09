@@ -1,4 +1,4 @@
-import { AlertCircle, ArrowRight, Bell, CheckCircle2, ChevronDown, LogOut, ShieldCheck, TicketCheck, UserRound } from 'lucide-react'
+import { AlertCircle, ArrowRight, Bell, CalendarDays, CheckCircle2, ChevronDown, LogOut, ShieldCheck, TicketCheck, UserRound } from 'lucide-react'
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
@@ -165,6 +165,12 @@ export function ProfilePage() {
             <Bell size={18} strokeWidth={2.5} />
             Notifications
           </Link>
+          {(auth.isAdmin || auth.hasPermission('EVENT_CREATE')) && (
+            <Link className="secondary-button" to="/?my_events=true">
+              <CalendarDays size={18} strokeWidth={2.5} />
+              My Events
+            </Link>
+          )}
           {auth.isAdmin && (
             <Link className="primary-button" to="/admin">
               Open Admin

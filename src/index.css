@@ -1215,6 +1215,7 @@ textarea:focus {
   padding: 0 18px;
   border-radius: var(--radius-full);
   background: var(--card);
+  text-decoration: none;
 }
 
 .secondary-button:hover {
@@ -1291,6 +1292,11 @@ textarea:focus {
   place-items: center;
   padding: 24px;
   background: rgba(30, 41, 59, 0.38);
+}
+
+.modal-backdrop.blurred {
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
 .ticket-modal {
@@ -3195,7 +3201,7 @@ textarea:focus {
 }
 
 .redesigned-showtime-row {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: 1fr 1fr 1.5fr 1.5fr;
   gap: 12px;
   align-items: end;
 }

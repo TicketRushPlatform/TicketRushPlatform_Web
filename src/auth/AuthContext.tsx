@@ -5,6 +5,7 @@ import {
   getMe,
   login,
   register,
+  refresh,
   uploadMyMedia,
   updateMe,
   type LoginPayload,
@@ -26,9 +27,21 @@ type AuthContextValue = {
   updateProfile: (payload: UpdateMePayload) => Promise<User>
   uploadMedia: (payload: UploadMediaPayload) => Promise<string>
   signOut: () => void
+  hasPermission: (permission: string) => boolean
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
+
+/** Try refreshing the access token using the stored refresh token. */
+async function tryRefreshTokens(stored: TokenPair): Promise<TokenPair | null> {
+  try {
+    const newTokens = await refresh({ refresh_token: stored.refresh_token })
+    saveTokens(newTokens, { persist: true })
+    return newTokens
+  } catch {
+    return null
+  }
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [tokens, setTokens] = useState<TokenPair | null>(null)
@@ -41,6 +54,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(nextUser)
     return nextUser
   }, [])
+
+  // Auto-refresh: set up a timer to refresh the access token before it expires
+  useEffect(() => {
+    if (!tokens) return
+
+    // Refresh 60 seconds before the access token expires (TTL is ~900s)
+    const refreshInterval = window.setInterval(async () => {
+      const stored = loadTokens()
+      if (!stored) return
+      const refreshed = await tryRefreshTokens(stored)
+      if (refreshed) {
+        setTokens(refreshed)
+        try {
+          const nextUser = await getMe(refreshed.access_token)
+          setUser(nextUser)
+        } catch {
+          // User data fetch failed but token is still valid
+        }
+      }
+    }, 13 * 60 * 1000) // Refresh every 13 minutes (before 15-min TTL)
+
+    return () => window.clearInterval(refreshInterval)
+  }, [tokens])
 
   useEffect(() => {
     let cancelled = false
@@ -57,7 +93,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setTokens(stored)
         setUser(nextUser)
       } catch {
-        if (!cancelled) clearTokens()
+        // Access token likely expired - try refresh
+        if (cancelled) return
+        const refreshed = await tryRefreshTokens(stored)
+        if (cancelled) return
+        if (refreshed) {
+          try {
+            const nextUser = await getMe(refreshed.access_token)
+            if (cancelled) return
+            setTokens(refreshed)
+            setUser(nextUser)
+          } catch {
+            if (!cancelled) clearTokens()
+          }
+        } else {
+          if (!cancelled) clearTokens()
+        }
       } finally {
         if (!cancelled) setIsLoading(false)
       }
@@ -111,6 +162,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [tokens],
   )
 
+  const hasPermission = useCallback(
+    (permission: string) => {
+      if (!user) return false
+      if ((user.role ?? '').toLowerCase() === 'admin') return true
+      return (user.permissions ?? []).includes(permission)
+    },
+    [user],
+  )
+
   const value = useMemo<AuthContextValue>(
     () => ({
       user,
@@ -123,8 +183,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       updateProfile,
       uploadMedia,
       signOut,
+      hasPermission,
     }),
-    [isLoading, signIn, signOut, signUp, tokens, updateProfile, uploadMedia, user],
+    [isLoading, signIn, signOut, signUp, tokens, updateProfile, uploadMedia, user, hasPermission],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
@@ -135,3 +196,4 @@ export function useAuth() {
   if (!context) throw new Error('useAuth must be used inside AuthProvider')
   return context
 }
+

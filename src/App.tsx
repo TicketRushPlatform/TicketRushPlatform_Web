@@ -1,4 +1,4 @@
-import { Bell, CircleUserRound, QrCode, Ticket } from 'lucide-react'
+import { Bell, CircleUserRound, QrCode, Ticket, UsersRound } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Link, Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom'
 import { useAuth } from './auth/AuthContext'
@@ -33,9 +33,9 @@ function App() {
         <Route
           path="/admin"
           element={
-            <RequireAdmin>
+            <RequireStaff>
               <AdminLayout />
-            </RequireAdmin>
+            </RequireStaff>
           }
         >
           <Route index element={<AdminDashboardPage />} />
@@ -76,6 +76,13 @@ function App() {
                 {auth.user?.avatar_url ? <img src={auth.user.avatar_url} alt="" /> : <CircleUserRound size={18} strokeWidth={2.5} />}
                 <span>{auth.user?.full_name ?? 'Profile'}</span>
               </NavLink>
+
+              {(!auth.isAdmin && auth.hasPermission('USER_MANAGE_ALL')) && (
+                <NavLink to="/admin/users" className="user-nav-link">
+                  <UsersRound size={18} strokeWidth={2.5} />
+                  <span>Users</span>
+                </NavLink>
+              )}
             </>
           ) : (
             <>
@@ -122,7 +129,7 @@ function RequireAuth({ children }: { children: ReactNode }) {
   return children
 }
 
-function RequireAdmin({ children }: { children: ReactNode }) {
+function RequireStaff({ children }: { children: ReactNode }) {
   const auth = useAuth()
   const location = useLocation()
 
@@ -134,7 +141,13 @@ function RequireAdmin({ children }: { children: ReactNode }) {
     return <Navigate to={`/login?next=${encodeURIComponent(`${location.pathname}${location.search}`)}`} replace />
   }
 
-  if (!auth.isAdmin) {
+  const isStaff =
+    auth.isAdmin ||
+    auth.hasPermission('EVENT_CREATE') ||
+    auth.hasPermission('EVENT_MANAGE_ALL') ||
+    auth.hasPermission('USER_MANAGE_ALL')
+
+  if (!isStaff) {
     return <Navigate to="/403" replace />
   }
 

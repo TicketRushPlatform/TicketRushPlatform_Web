@@ -1,4 +1,4 @@
-import { ArrowLeft, Circle, Save, Square, Ticket, Triangle } from 'lucide-react'
+import { ArrowLeft, Circle, Save, Square, Ticket, Triangle, X } from 'lucide-react'
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 
@@ -19,7 +19,7 @@ const tones: Array<{ tone: SeatTone; label: string }> = [
   { tone: 'balcony', label: 'Balcony' },
 ]
 
-export function SeatMapDesignerPage() {
+export function SeatMapDesignerPage({ asModal, onClose }: { asModal?: boolean; onClose?: () => void }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const [rows, setRows] = useState(ROWS)
   const [cols, setCols] = useState(COLS)
@@ -43,6 +43,15 @@ export function SeatMapDesignerPage() {
     standard: 90000,
     balcony: 70000,
   })
+
+  useEffect(() => {
+    if (!asModal) return
+    const originalOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = originalOverflow
+    }
+  }, [asModal])
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -92,20 +101,27 @@ export function SeatMapDesignerPage() {
   }
 
   return (
-    <section className="seat-designer-page" aria-labelledby="seat-designer-title">
-      <div className="seat-designer-topbar">
-        <div>
-          <p className="eyebrow">
-            <Ticket size={18} strokeWidth={2.5} />
-            Seat map studio
-          </p>
-          <h1 id="seat-designer-title">Design a custom venue map.</h1>
+    <section className={asModal ? "modal-body-container" : "seat-designer-page"} aria-labelledby="seat-designer-title" style={asModal ? { position: 'relative' } : undefined}>
+      {asModal && (
+        <button className="modal-close" type="button" onClick={onClose} aria-label="Close modal" style={{ zIndex: 10 }}>
+          <X size={20} strokeWidth={2.5} />
+        </button>
+      )}
+      {!asModal && (
+        <div className="seat-designer-topbar">
+          <div>
+            <p className="eyebrow">
+              <Ticket size={18} strokeWidth={2.5} />
+              Seat map studio
+            </p>
+            <h1 id="seat-designer-title">Design a custom venue map.</h1>
+          </div>
+          <Link className="secondary-button compact-link" to="/admin/events/new">
+            <ArrowLeft size={18} strokeWidth={2.5} />
+            Back to create event
+          </Link>
         </div>
-        <Link className="secondary-button compact-link" to="/admin/events/new">
-          <ArrowLeft size={18} strokeWidth={2.5} />
-          Back to create event
-        </Link>
-      </div>
+      )}
 
       <div className="seat-designer-layout">
         <aside className="admin-panel seat-designer-sidebar">
@@ -168,13 +184,21 @@ export function SeatMapDesignerPage() {
             <button className="secondary-button" type="button" onClick={() => { setDragStart(null); setDragCurrent(null) }} disabled={!selectedSeatIds.length}>
               Clear selection
             </button>
-            <button className="primary-button compact-button" type="button" onClick={saveMap}>
+            <button className="primary-button compact-button" type="button" onClick={() => {
+              saveMap()
+              if (onClose) onClose()
+            }}>
               Save map
               <span>
                 <Save size={16} strokeWidth={2.5} />
               </span>
             </button>
-            <p>Current brush: {brushTone.toUpperCase()}</p>
+            {asModal && (
+              <button className="secondary-button" type="button" onClick={onClose} style={{ marginTop: 8 }}>
+                Cancel
+              </button>
+            )}
+            <p style={{ marginTop: 16 }}>Current brush: {brushTone.toUpperCase()}</p>
             <p>Current brush price: {new Intl.NumberFormat('vi-VN').format(seatPrices[brushTone])} VND</p>
           </div>
         </aside>
