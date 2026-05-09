@@ -1,10 +1,9 @@
-import { AlertCircle, CheckCircle2, KeyRound, Plus, Trash2, X } from 'lucide-react'
+import { AlertCircle, CheckCircle2, KeyRound, Plus, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../auth/AuthContext'
 import {
   ApiError,
   createRoleWithPermissions,
-  deleteRole,
   listPermissionCatalog,
   listRolePermissions,
   updateRolePermissions,
@@ -79,17 +78,7 @@ export function PermissionManagementPage() {
     }
   }
 
-  async function onDeleteRole(role: RolePermissionSet) {
-    if (!auth.tokens?.access_token || role.system) return
-    try {
-      await deleteRole(auth.tokens.access_token, role.name)
-      setRoles((current) => current.filter((item) => item.name !== role.name))
-      setNotice({ tone: 'success', text: `Role "${role.name}" deleted.` })
-      if (selectedRole === role.name) setSelectedRole('')
-    } catch (err) {
-      setNotice({ tone: 'error', text: err instanceof ApiError ? err.message : 'Unable to delete role.' })
-    }
-  }
+
 
   async function onAddPermission(role: RolePermissionSet) {
     if (!auth.tokens?.access_token) return
@@ -210,11 +199,7 @@ export function PermissionManagementPage() {
                       {role.system ? 'System role' : 'Custom role'} - {role.permissions.length} permissions
                     </p>
                   </div>
-                  {!role.system && (
-                    <button className="icon-button danger" type="button" onClick={() => onDeleteRole(role)} title="Delete role">
-                      <Trash2 size={16} strokeWidth={2.5} />
-                    </button>
-                  )}
+
                 </div>
 
                 <div className="permission-chip-list">

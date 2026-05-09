@@ -104,6 +104,17 @@ export function ProfilePage() {
             <span>Full name</span>
             <input value={fullName} onChange={(event) => setFullName(event.target.value)} />
           </label>
+          <div className="field">
+            <span>Assigned Roles</span>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', padding: '12px', border: '2px solid var(--soft-border)', borderRadius: 'var(--radius-md)', background: 'var(--muted)' }}>
+              <span className={`user-status-badge ${auth.user.role === 'ADMIN' ? 'active' : ''}`}>{auth.user.role} (Base)</span>
+              {(auth.user.assigned_roles ?? []).map((roleName) => (
+                <span className="user-status-badge" key={roleName} style={{ background: 'var(--tertiary)', color: '#000' }}>
+                  {roleName}
+                </span>
+              ))}
+            </div>
+          </div>
           <div className="profile-form-row">
             <label className="field">
               <span>Gender</span>

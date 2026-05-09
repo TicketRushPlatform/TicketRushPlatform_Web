@@ -6,17 +6,28 @@ import {
   Edit3,
   Plus,
   Search,
-  ShieldCheck,
   Trash2,
   UserRound,
   UsersRound,
   X,
+  KeyRound,
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { useAuth } from '../auth/AuthContext'
-import { ApiError, createUserByAdmin, deleteUserByAdmin, listRolePermissions, listUsers, updateUserByAdmin, type User } from '../services/userApi'
+import {
+  ApiError,
+  assignUserRole,
+  createUserByAdmin,
+  deleteUserByAdmin,
+  listRolePermissions,
+  listUsers,
+  removeUserRole,
+  updateUserByAdmin,
+  type RolePermissionSet,
+  type User,
+} from '../services/userApi'
 
-type ModalMode = 'create' | 'edit' | null
+type ModalMode = 'create' | 'edit' | 'roles' | null
 
 export function UserManagementPage() {
   const auth = useAuth()
@@ -32,14 +43,21 @@ export function UserManagementPage() {
   const [formName, setFormName] = useState('')
   const [formEmail, setFormEmail] = useState('')
   const [formPassword, setFormPassword] = useState('')
+  const [availableRoles, setAvailableRoles] = useState<RolePermissionSet[]>([])
   const [roleOptions, setRoleOptions] = useState<string[]>([])
   const [formRole, setFormRole] = useState('PROFILE_OWNER')
   const [formStatus, setFormStatus] = useState<'ACTIVE' | 'BLOCKED'>('ACTIVE')
 
+  // Role assignment state
+  const [selectedRoleToAssign, setSelectedRoleToAssign] = useState('')
+  const [isAssigning, setIsAssigning] = useState(false)
+
   const filteredUsers = useMemo(() => {
     const keyword = query.trim().toLowerCase()
     if (!keyword) return users
-    return users.filter((u) => [u.full_name, u.email, u.role, u.status].join(' ').toLowerCase().includes(keyword))
+    return users.filter((u) =>
+      [u.full_name, u.email, u.role, u.status, ...(u.assigned_roles ?? [])].join(' ').toLowerCase().includes(keyword),
+    )
   }, [users, query])
 
   const stats = useMemo(
@@ -47,7 +65,7 @@ export function UserManagementPage() {
       total: users.length,
       active: users.filter((u) => u.status === 'ACTIVE').length,
       banned: users.filter((u) => u.status === 'BLOCKED').length,
-      owners: users.filter((u) => ['PROFILE_OWNER', 'EVENT_OWNER', 'BOOKING_OWNER'].includes((u.role ?? '').toUpperCase())).length,
+      withRoles: users.filter((u) => (u.assigned_roles?.length ?? 0) > 0).length,
     }),
     [users],
   )
@@ -66,6 +84,7 @@ export function UserManagementPage() {
         ])
         if (!cancelled) {
           setUsers(fetchedUsers)
+          setAvailableRoles(fetchedRoles)
           const roleNames = fetchedRoles.map((role) => role.name)
           setRoleOptions(roleNames)
           if (roleNames.length > 0) setFormRole(roleNames[0])
@@ -104,6 +123,12 @@ export function UserManagementPage() {
     setModalMode('edit')
   }
 
+  function openRolesModal(user: User) {
+    setEditingUser(user)
+    setSelectedRoleToAssign('')
+    setModalMode('roles')
+  }
+
   function closeModal() {
     setModalMode(null)
     setEditingUser(null)
@@ -111,7 +136,7 @@ export function UserManagementPage() {
 
   async function onSubmitForm(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!modalMode || !auth.tokens?.access_token) return
+    if (!modalMode || modalMode === 'roles' || !auth.tokens?.access_token) return
     setIsSubmitting(true)
     try {
       if (modalMode === 'create') {
@@ -143,6 +168,48 @@ export function UserManagementPage() {
     }
   }
 
+  async function onAssignRole() {
+    if (!auth.tokens?.access_token || !editingUser || !selectedRoleToAssign) return
+    setIsAssigning(true)
+    try {
+      await assignUserRole(auth.tokens.access_token, editingUser.id, selectedRoleToAssign)
+
+      // Refresh user data to get updated assigned_roles
+      const updatedUsers = await listUsers(auth.tokens.access_token)
+      setUsers(updatedUsers)
+      const updatedUser = updatedUsers.find((u) => u.id === editingUser.id)
+      if (updatedUser) setEditingUser(updatedUser)
+
+      setSelectedRoleToAssign('')
+      setNotice({ tone: 'success', text: `Role "${selectedRoleToAssign}" assigned to "${editingUser.full_name}". User has been notified.` })
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : 'Unable to assign role.'
+      setNotice({ tone: 'error', text: message })
+    } finally {
+      setIsAssigning(false)
+      setTimeout(() => setNotice(null), 5000)
+    }
+  }
+
+  async function onRemoveRole(roleName: string) {
+    if (!auth.tokens?.access_token || !editingUser) return
+    try {
+      await removeUserRole(auth.tokens.access_token, editingUser.id, roleName)
+
+      // Refresh user data
+      const updatedUsers = await listUsers(auth.tokens.access_token)
+      setUsers(updatedUsers)
+      const updatedUser = updatedUsers.find((u) => u.id === editingUser.id)
+      if (updatedUser) setEditingUser(updatedUser)
+
+      setNotice({ tone: 'success', text: `Role "${roleName}" removed from "${editingUser.full_name}". User has been notified.` })
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : 'Unable to remove role.'
+      setNotice({ tone: 'error', text: message })
+    }
+    setTimeout(() => setNotice(null), 5000)
+  }
+
   async function toggleBan(user: User) {
     if (!auth.tokens?.access_token) return
     try {
@@ -172,6 +239,13 @@ export function UserManagementPage() {
     }
     setTimeout(() => setNotice(null), 4000)
   }
+
+  // Roles not yet assigned to the editing user
+  const unassignedRoles = useMemo(() => {
+    if (!editingUser) return availableRoles
+    const assignedSet = new Set(editingUser.assigned_roles ?? [])
+    return availableRoles.filter((r) => !assignedSet.has(r.name))
+  }, [editingUser, availableRoles])
 
   return (
     <section className="user-management-page" aria-labelledby="user-mgmt-title">
@@ -226,10 +300,10 @@ export function UserManagementPage() {
         </article>
         <article className="user-stat-card amber">
           <span className="metric-icon" style={{ background: 'var(--tertiary)' }}>
-            <ShieldCheck size={22} strokeWidth={2.5} />
+            <KeyRound size={22} strokeWidth={2.5} />
           </span>
-          <p>Owner roles</p>
-          <strong>{stats.owners}</strong>
+          <p>With roles</p>
+          <strong>{stats.withRoles}</strong>
         </article>
       </div>
 
@@ -237,7 +311,7 @@ export function UserManagementPage() {
         <div className="panel-heading">
           <div>
             <h2 id="user-table-title">User directory</h2>
-            <p>View, edit, ban, or remove users from the platform.</p>
+            <p>View, edit, ban, assign roles, or remove users from the platform.</p>
           </div>
           <div className="table-search">
             <Search size={18} strokeWidth={2.5} />
@@ -250,7 +324,7 @@ export function UserManagementPage() {
             <span role="columnheader" />
             <span role="columnheader">Name</span>
             <span role="columnheader">Email</span>
-            <span role="columnheader">Role</span>
+            <span role="columnheader">Roles</span>
             <span role="columnheader">Status</span>
             <span role="columnheader">Actions</span>
           </div>
@@ -273,7 +347,14 @@ export function UserManagementPage() {
                 {user.email}
               </span>
               <span role="cell">
-                <span className={`user-status-badge ${user.role === 'ADMIN' ? 'active' : ''}`}>{user.role}</span>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                  <span className={`user-status-badge ${user.role === 'ADMIN' ? 'active' : ''}`}>{user.role}</span>
+                  {(user.assigned_roles ?? []).map((roleName) => (
+                    <span className="user-status-badge" key={roleName} style={{ background: 'var(--tertiary)', color: '#000' }}>
+                      {roleName}
+                    </span>
+                  ))}
+                </div>
               </span>
               <span role="cell">
                 <span className={`user-status-badge ${user.status === 'BLOCKED' ? 'banned' : 'active'}`}>{user.status}</span>
@@ -281,6 +362,9 @@ export function UserManagementPage() {
               <div className="user-action-buttons" role="cell">
                 <button type="button" title="Edit user" onClick={() => openEditModal(user)}>
                   <Edit3 size={14} strokeWidth={2.5} />
+                </button>
+                <button type="button" title="Manage roles" onClick={() => openRolesModal(user)}>
+                  <KeyRound size={14} strokeWidth={2.5} />
                 </button>
                 <button type="button" title={user.status === 'BLOCKED' ? 'Unban user' : 'Ban user'} onClick={() => toggleBan(user)}>
                   <Ban size={14} strokeWidth={2.5} />
@@ -294,7 +378,8 @@ export function UserManagementPage() {
         </div>
       </section>
 
-      {modalMode && (
+      {/* Create / Edit modal */}
+      {(modalMode === 'create' || modalMode === 'edit') && (
         <div className="user-modal-overlay" onClick={closeModal}>
           <form
             className="user-modal"
@@ -340,7 +425,7 @@ export function UserManagementPage() {
             )}
 
             <label className="field">
-              <span>Role</span>
+              <span>Base role</span>
               <OptionPicker
                 value={formRole}
                 valueLabel={formRole}
@@ -373,6 +458,150 @@ export function UserManagementPage() {
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* Role Assignment modal */}
+      {modalMode === 'roles' && editingUser && (
+        <div className="user-modal-overlay" onClick={closeModal}>
+          <div className="user-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 580 }}>
+            <div className="user-modal-header">
+              <h2>
+                <KeyRound size={20} strokeWidth={2.5} style={{ marginRight: 8, verticalAlign: 'text-bottom' }} />
+                Manage roles for {editingUser.full_name}
+              </h2>
+              <button className="icon-button" type="button" onClick={closeModal} style={{ width: 40, minHeight: 40 }}>
+                <X size={18} strokeWidth={2.5} />
+              </button>
+            </div>
+
+            {/* Currently assigned roles */}
+            <div style={{ marginBottom: 20 }}>
+              <h3 style={{ fontSize: '0.95rem', marginBottom: 10, color: 'var(--muted-foreground)' }}>Assigned roles</h3>
+              {(editingUser.assigned_roles ?? []).length === 0 ? (
+                <p style={{ fontSize: '0.9rem', color: 'var(--muted-foreground)', fontStyle: 'italic' }}>No dynamic roles assigned yet.</p>
+              ) : (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                  {(editingUser.assigned_roles ?? []).map((roleName) => {
+                    const roleDef = availableRoles.find((r) => r.name === roleName)
+                    return (
+                      <div
+                        key={roleName}
+                        style={{
+                          background: 'var(--card)',
+                          border: '1px solid var(--border)',
+                          borderRadius: 12,
+                          padding: '10px 14px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: 6,
+                          minWidth: 180,
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                          <strong style={{ fontSize: '0.9rem' }}>{roleName}</strong>
+                          <button
+                            className="icon-button danger"
+                            type="button"
+                            title={`Remove ${roleName}`}
+                            onClick={() => onRemoveRole(roleName)}
+                            style={{ width: 28, minHeight: 28, padding: 4 }}
+                          >
+                            <X size={14} strokeWidth={2.5} />
+                          </button>
+                        </div>
+                        {roleDef && roleDef.permissions.length > 0 && (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                            {roleDef.permissions.map((perm) => (
+                              <span
+                                key={perm}
+                                style={{
+                                  background: 'var(--accent)',
+                                  color: 'var(--accent-foreground)',
+                                  borderRadius: 6,
+                                  padding: '2px 8px',
+                                  fontSize: '0.75rem',
+                                  fontWeight: 500,
+                                }}
+                              >
+                                {perm}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Assign new role */}
+            {unassignedRoles.length > 0 && (
+              <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
+                <h3 style={{ fontSize: '0.95rem', marginBottom: 10, color: 'var(--muted-foreground)' }}>Assign a new role</h3>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                  <div style={{ flex: 1 }}>
+                    <select
+                      value={selectedRoleToAssign}
+                      onChange={(e) => setSelectedRoleToAssign(e.target.value)}
+                      className="permission-select"
+                      style={{ width: '100%' }}
+                    >
+                      <option value="">Select a role to assign</option>
+                      {unassignedRoles.map((role) => (
+                        <option key={role.name} value={role.name}>
+                          {role.name} ({role.permissions.length} permissions)
+                        </option>
+                      ))}
+                    </select>
+                    {selectedRoleToAssign && (
+                      <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                        {availableRoles
+                          .find((r) => r.name === selectedRoleToAssign)
+                          ?.permissions.map((perm) => (
+                            <span
+                              key={perm}
+                              style={{
+                                background: 'var(--tertiary)',
+                                color: '#000',
+                                borderRadius: 6,
+                                padding: '2px 8px',
+                                fontSize: '0.75rem',
+                                fontWeight: 500,
+                              }}
+                            >
+                              {perm}
+                            </span>
+                          ))}
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    className="primary-button compact-button"
+                    type="button"
+                    onClick={onAssignRole}
+                    disabled={!selectedRoleToAssign || isAssigning}
+                    style={{ whiteSpace: 'nowrap' }}
+                  >
+                    {isAssigning ? 'Assigning...' : 'Assign role'}
+                    <span>
+                      <Plus size={16} strokeWidth={2.5} />
+                    </span>
+                  </button>
+                </div>
+                <p style={{ fontSize: '0.8rem', color: 'var(--muted-foreground)', marginTop: 8 }}>
+                  The user will receive a notification about their new role and permissions.
+                </p>
+              </div>
+            )}
+
+            <div className="user-modal-actions" style={{ marginTop: 20 }}>
+              <button className="secondary-button" type="button" onClick={closeModal} style={{ justifyContent: 'center' }}>
+                Close
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </section>
