@@ -5,6 +5,7 @@ import {
   CircleDollarSign,
   Clock,
   Clapperboard,
+  Edit3,
   LoaderCircle,
   MapPin,
   Music2,
@@ -14,12 +15,15 @@ import {
 } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
+import { useAuth } from '../auth/AuthContext'
 import { formatCurrency, formatDate, getEvent, getSeatsStatus, getShowtimesByEvent } from '../services/ticketRushApi'
 import type { Showtime, TicketRushEvent } from '../types'
 
 export function EventDetailPage() {
   const { eventId } = useParams()
   const navigate = useNavigate()
+  const auth = useAuth()
+  const canEditAll = auth.hasPermission('EVENT_MANAGE_ALL')
   const [event, setEvent] = useState<TicketRushEvent | null>(null)
   const [showtimes, setShowtimes] = useState<Showtime[]>([])
   const [showtimeStats, setShowtimeStats] = useState<Record<string, { available: number; total: number }>>({})
@@ -92,10 +96,18 @@ export function EventDetailPage() {
 
   return (
     <section className="event-detail-page" aria-labelledby="event-detail-title">
-      <Link className="secondary-button compact-link" to="/">
-        <ArrowLeft size={18} strokeWidth={2.5} />
-        Explore Tickets
-      </Link>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <Link className="secondary-button compact-link" to="/">
+          <ArrowLeft size={18} strokeWidth={2.5} />
+          Explore Events
+        </Link>
+        {canEditAll && event && (
+          <Link className="secondary-button compact-link" to={`/admin/events/${event.id}/edit`}>
+            <Edit3 size={18} strokeWidth={2.5} />
+            Edit Event
+          </Link>
+        )}
+      </div>
 
       <article className={`event-detail-hero ${!event.imageUrl ? 'no-poster' : ''}`}>
         {event.imageUrl && (

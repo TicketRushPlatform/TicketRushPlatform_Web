@@ -11,6 +11,7 @@ import {
   LoaderCircle,
   MapPin,
   Mic,
+  Plus,
   RotateCcw,
   Search,
   SlidersHorizontal,
@@ -19,9 +20,11 @@ import {
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
+import { useAuth } from '../auth/AuthContext'
 import { formatCurrency, formatDate, listEvents } from '../services/ticketRushApi'
 import type { EventItem } from '../types'
+import { CreateEventModal } from './CreateEventModal'
 
 const pageSize = 6
 type SortOption = 'date-asc' | 'price-asc' | 'price-desc' | 'name-asc'
@@ -33,7 +36,12 @@ const sortOptions: Array<{ value: SortOption; label: string }> = [
 ]
 
 export function DiscoveryPage() {
+  const auth = useAuth()
+  const [searchParams] = useSearchParams()
+  const filterByMyEvents = searchParams.get('my_events') === 'true'
+  const canCreateEvent = auth.hasPermission('EVENT_CREATE')
   const [events, setEvents] = useState<EventItem[]>([])
+  const [isModalOpen, setIsModalOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [query, setQuery] = useState('')
@@ -94,6 +102,8 @@ export function DiscoveryPage() {
 
     return events
       .filter((event) => {
+        if (filterByMyEvents && auth.user && event.creatorId !== auth.user.id) return false
+        
         const searchableText = [
           event.name,
           event.category,
@@ -118,7 +128,7 @@ export function DiscoveryPage() {
         if (sort === 'name-asc') return first.name.localeCompare(second.name)
         return first.date.localeCompare(second.date)
       })
-  }, [category, date, events, query, sort])
+  }, [category, date, events, query, sort, filterByMyEvents, auth.user])
   const availableCategories = useMemo(
     () => [...new Set(events.map((event) => event.category))].sort((first, second) => first.localeCompare(second)),
     [events],
@@ -167,13 +177,21 @@ export function DiscoveryPage() {
           <div>
             <p className="eyebrow">
               <SlidersHorizontal size={18} strokeWidth={2.5} />
-              Browse events
+              {filterByMyEvents ? 'Your events' : 'Browse events'}
             </p>
-            <h2 id="discover-title">Discover tickets</h2>
+            <h2 id="discover-title">{filterByMyEvents ? 'My Events' : 'Discover Events'}</h2>
           </div>
-          <p>
-            {filteredEvents.length} {filteredEvents.length === 1 ? 'event' : 'events'} found
-          </p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+            <p>
+              {filteredEvents.length} {filteredEvents.length === 1 ? 'event' : 'events'} found
+            </p>
+            {canCreateEvent && (
+              <button className="primary-button compact-button" type="button" onClick={() => setIsModalOpen(true)} style={{ whiteSpace: 'nowrap' }}>
+                <Plus size={18} strokeWidth={2.5} />
+                Create Event
+              </button>
+            )}
+          </div>
         </div>
 
         <form className="filters" onSubmit={(event) => event.preventDefault()}>
@@ -311,7 +329,16 @@ export function DiscoveryPage() {
           </>
         )}
       </section>
-
+      
+      {isModalOpen && (
+        <CreateEventModal 
+          onClose={() => setIsModalOpen(false)} 
+          onSuccess={() => {
+            setIsModalOpen(false)
+            loadEvents()
+          }} 
+        />
+      )}
     </>
   )
 }

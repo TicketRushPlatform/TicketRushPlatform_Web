@@ -424,16 +424,18 @@ export function UserManagementPage() {
               </label>
             )}
 
-            <label className="field">
-              <span>Base role</span>
-              <OptionPicker
-                value={formRole}
-                valueLabel={formRole}
-                ariaLabel="Choose role"
-                options={roleOptions.map((role) => ({ value: role, label: role }))}
-                onChange={(value) => setFormRole(value)}
-              />
-            </label>
+            {modalMode === 'create' && (
+              <label className="field">
+                <span>Base role</span>
+                <OptionPicker
+                  value={formRole}
+                  valueLabel={formRole}
+                  ariaLabel="Choose role"
+                  options={roleOptions.map((role) => ({ value: role, label: role }))}
+                  onChange={(value) => setFormRole(value)}
+                />
+              </label>
+            )}
 
             <label className="field">
               <span>Status</span>

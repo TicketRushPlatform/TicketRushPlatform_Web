@@ -130,10 +130,21 @@ export function SeatSelectionPage() {
     sold: seats.filter((seat) => seat.status === 'SOLD').length,
   }
 
+  const maxSeats = event?.maxTicketsPerBooking ?? null
+
   function toggleSeat(seat: Seat) {
     if (seat.status !== 'AVAILABLE') return
     setError(null)
-    setSelectedSeatIds((current) => (current.includes(seat.id) ? current.filter((seatId) => seatId !== seat.id) : [...current, seat.id]))
+    setSelectedSeatIds((current) => {
+      if (current.includes(seat.id)) {
+        return current.filter((seatId) => seatId !== seat.id)
+      }
+      if (maxSeats && current.length >= maxSeats) {
+        setError(`You can only select up to ${maxSeats} seats per booking for this event.`)
+        return current
+      }
+      return [...current, seat.id]
+    })
   }
 
   async function onHoldSeats() {
@@ -257,7 +268,14 @@ export function SeatSelectionPage() {
           </div>
 
           <div className="selected-seat-list">
-            <span>Selected seats</span>
+            <span>
+              Selected seats
+              {maxSeats && (
+                <small style={{ marginLeft: 8, color: 'var(--muted-foreground)', fontWeight: 400 }}>
+                  (max {maxSeats})
+                </small>
+              )}
+            </span>
             {selectedSeats.length === 0 ? (
               <p>No seats selected.</p>
             ) : (

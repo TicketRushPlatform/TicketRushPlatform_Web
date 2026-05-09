@@ -36,6 +36,7 @@ export type Soundtrack = {
 
 export type EventItem = {
   id: string
+  creatorId: string
   kind: EventKind
   name: string
   category: EventCategory
@@ -54,6 +55,7 @@ export type EventItem = {
   isFlashSale: boolean
   movie?: MovieMetadata
   soundtracks?: Soundtrack[]
+  maxTicketsPerBooking?: number | null
 }
 
 export type TicketRushEvent = EventItem & {
