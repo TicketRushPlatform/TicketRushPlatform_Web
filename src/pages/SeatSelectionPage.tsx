@@ -2,7 +2,18 @@ import { AlertCircle, ArrowLeft, CalendarDays, CheckCircle2, Clock, LoaderCircle
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
-import { formatCurrency, formatDate, getEvent, getSeatsStatus, getShowtime, holdSeats, subscribeSeatsStatus } from '../services/ticketRushApi'
+import {
+  formatCurrency,
+  formatDate,
+  getEvent,
+  getQueueStatus,
+  getSeatsStatus,
+  getShowtime,
+  heartbeatQueue,
+  holdSeats,
+  leaveQueue,
+  subscribeSeatsStatus,
+} from '../services/ticketRushApi'
 import type { Seat, SeatClass, Showtime, TicketRushEvent } from '../types'
 
 type RowGroup = {
@@ -23,7 +34,18 @@ export function SeatSelectionPage() {
   const [isHolding, setIsHolding] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  /** User holds an active Redis "booking room" slot (queue enabled + passed gate); leaving the page must release it. */
+  const [bookingRoomActive, setBookingRoomActive] = useState(false)
+  /** Avoid releasing the slot on React Strict Mode dev remount before the first real paint cycle. */
+  const allowSessionEndRef = useRef(false)
   const seatsRef = useRef<Seat[]>([])
+
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      allowSessionEndRef.current = true
+    }, 0)
+    return () => window.clearTimeout(t)
+  }, [])
 
   useEffect(() => {
     seatsRef.current = seats
@@ -40,10 +62,38 @@ export function SeatSelectionPage() {
 
   useEffect(() => {
     let cancelled = false
+    setBookingRoomActive(false)
     ;(async () => {
       if (!showtimeId) return
       const currentShowtime = await getShowtime(showtimeId)
-      if (!currentShowtime) return
+      if (!currentShowtime || cancelled) return
+
+      if (currentShowtime.queueEnabled) {
+        if (!auth.isAuthenticated) {
+          setIsLoading(false)
+          navigate(`/login?next=${encodeURIComponent(`/showtimes/${showtimeId}/seats`)}`, { replace: true })
+          return
+        }
+        try {
+          const q = await getQueueStatus(showtimeId)
+          if (cancelled) return
+          if (!q.canEnter) {
+            setIsLoading(false)
+            navigate(`/queue/${showtimeId}`, { replace: true })
+            return
+          }
+          setBookingRoomActive(true)
+        } catch {
+          if (!cancelled) {
+            setIsLoading(false)
+            navigate(`/queue/${showtimeId}`, { replace: true })
+          }
+          return
+        }
+      } else {
+        setBookingRoomActive(false)
+      }
+
       const currentEvent = await getEvent(currentShowtime.eventId)
       if (cancelled) return
       setShowtime(currentShowtime)
@@ -55,7 +105,7 @@ export function SeatSelectionPage() {
       cancelled = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showtimeId])
+  }, [showtimeId, auth.isAuthenticated, navigate])
 
   useEffect(() => {
     const searchParams = new URLSearchParams(location.search)
@@ -72,6 +122,40 @@ export function SeatSelectionPage() {
       { replace: true },
     )
   }, [location.pathname, location.search, navigate])
+
+  useEffect(() => {
+    if (!showtimeId || !bookingRoomActive) return
+
+    const tick = () => {
+      void heartbeatQueue(showtimeId).catch((err) => {
+        const message = err instanceof Error ? err.message : 'Booking room session ended.'
+        setError(message)
+        navigate(`/queue/${showtimeId}`, { replace: true })
+      })
+    }
+
+    tick()
+    const timer = window.setInterval(tick, 8000)
+    return () => window.clearInterval(timer)
+  }, [showtimeId, bookingRoomActive, navigate])
+
+  useEffect(() => {
+    if (!showtimeId || !bookingRoomActive) return
+
+    const onPageHide = () => {
+      if (allowSessionEndRef.current) void leaveQueue(showtimeId)
+    }
+    window.addEventListener('pagehide', onPageHide)
+    return () => window.removeEventListener('pagehide', onPageHide)
+  }, [showtimeId, bookingRoomActive])
+
+  useEffect(() => {
+    return () => {
+      if (showtimeId && bookingRoomActive && allowSessionEndRef.current) {
+        void leaveQueue(showtimeId)
+      }
+    }
+  }, [showtimeId, bookingRoomActive])
 
   useEffect(() => {
     if (!showtimeId) return

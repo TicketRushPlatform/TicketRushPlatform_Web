@@ -89,7 +89,14 @@ function App() {
         <Route path="/" element={<DiscoveryPage />} />
         <Route path="/sound-search" element={<SoundSearchPage />} />
         <Route path="/events/:eventId" element={<EventDetailPage />} />
-        <Route path="/queue/:showtimeId" element={<WaitingRoomPage />} />
+        <Route
+          path="/queue/:showtimeId"
+          element={
+            <RequireAuth>
+              <WaitingRoomPage />
+            </RequireAuth>
+          }
+        />
         <Route path="/showtimes/:showtimeId/seats" element={<SeatSelectionPage />} />
         <Route path="/checkout/:bookingId" element={<RequireAuth><CheckoutPage /></RequireAuth>} />
         <Route path="/tickets" element={<RequireAuth><MyTicketsPage /></RequireAuth>} />
