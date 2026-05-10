@@ -469,7 +469,7 @@ function normalizeRealtimeStatus(response: BookingSeatStatusResponse): RealtimeS
 }
 
 export function subscribeSeatsStatus(showtimeId: string, onStatus: (status: RealtimeSeatStatus) => void, onError?: () => void): () => void {
-  if (typeof WebSocket === 'undefined') return () => {}
+  if (typeof WebSocket === 'undefined') return () => { }
 
   let closed = false
   let reconnectTimer: number | undefined
@@ -960,7 +960,7 @@ export async function createEvent(payload: CreateEventPayload): Promise<TicketRu
   catalogBootstrapPromise = null
   resetDemoState()
   await ensureCatalogBootstrap()
-  const state = getFreshState()m
+  const state = getFreshState()
   const existing = state.events.find((event) => event.id === created.id)
   if (!existing) {
     throw new Error('Event was created but not found in refreshed catalog.')
@@ -976,7 +976,7 @@ export async function updateEvent(eventId: string, payload: CreateEventPayload):
       payload.kind === 'MOVIE'
         ? payload.movie?.durationMinutes ?? 120
         : payload.durationMinutes ??
-          Math.max(60, Math.min(360, Math.round((payload.sections.length || 2) * 60))),
+        Math.max(60, Math.min(360, Math.round((payload.sections.length || 2) * 60))),
     event_type: payload.kind,
     category: payload.kind === 'MOVIE' ? 'Cinema' : payload.category,
     venue: payload.venue,
