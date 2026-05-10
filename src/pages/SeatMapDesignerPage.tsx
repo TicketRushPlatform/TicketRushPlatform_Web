@@ -1,6 +1,7 @@
 import { ArrowLeft, Circle, Save, Square, Ticket, Triangle, X } from 'lucide-react'
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
+import type { SeatClass, SeatSectionInput } from '../types'
 
 type SeatTone = 'vip' | 'reserved' | 'standard' | 'balcony'
 type SeatCell = {
@@ -8,6 +9,35 @@ type SeatCell = {
   row: number
   col: number
   tone: SeatTone
+}
+
+export type SavedSeatMap = {
+  id: string
+  name: string
+  venue: string
+  address: string
+  rows: number
+  cols: number
+  sections: SeatSectionInput[]
+  seats: Array<{ row: number; col: number; tone: SeatTone }>
+}
+
+const SEAT_MAPS_STORAGE_KEY = 'ticketrush.seat_maps.v1'
+
+export function loadSavedSeatMaps(): SavedSeatMap[] {
+  if (typeof window === 'undefined') return []
+  try {
+    const raw = window.localStorage.getItem(SEAT_MAPS_STORAGE_KEY)
+    if (!raw) return []
+    return JSON.parse(raw) as SavedSeatMap[]
+  } catch {
+    return []
+  }
+}
+
+function saveSeatMapsToStorage(maps: SavedSeatMap[]): void {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(SEAT_MAPS_STORAGE_KEY, JSON.stringify(maps))
 }
 
 const ROWS = 14
@@ -19,8 +49,64 @@ const tones: Array<{ tone: SeatTone; label: string }> = [
   { tone: 'balcony', label: 'Balcony' },
 ]
 
-export function SeatMapDesignerPage({ asModal, onClose }: { asModal?: boolean; onClose?: () => void }) {
+const toneToSeatClass: Record<SeatTone, SeatClass> = {
+  vip: 'VIP',
+  reserved: 'PREMIUM',
+  standard: 'STANDARD',
+  balcony: 'STANDARD',
+}
+
+function buildSectionsFromSeats(seats: SeatCell[], cols: number, prices: Record<SeatTone, number>): SeatSectionInput[] {
+  // Group rows by their dominant tone
+  const rowTones = new Map<number, SeatTone>()
+  for (const seat of seats) {
+    // Count tones per row
+    if (!rowTones.has(seat.row)) {
+      rowTones.set(seat.row, seat.tone)
+    }
+  }
+
+  const sections: SeatSectionInput[] = []
+  let currentTone: SeatTone | null = null
+  let currentRowCount = 0
+
+  const sortedRows = [...rowTones.entries()].sort((a, b) => a[0] - b[0])
+  for (const [, tone] of sortedRows) {
+    if (tone !== currentTone) {
+      if (currentTone !== null) {
+        sections.push({
+          name: currentTone.charAt(0).toUpperCase() + currentTone.slice(1),
+          rowCount: currentRowCount,
+          seatsPerRow: cols,
+          seatClass: toneToSeatClass[currentTone],
+          price: prices[currentTone],
+        })
+      }
+      currentTone = tone
+      currentRowCount = 1
+    } else {
+      currentRowCount++
+    }
+  }
+
+  if (currentTone !== null) {
+    sections.push({
+      name: currentTone.charAt(0).toUpperCase() + currentTone.slice(1),
+      rowCount: currentRowCount,
+      seatsPerRow: cols,
+      seatClass: toneToSeatClass[currentTone],
+      price: prices[currentTone],
+    })
+  }
+
+  return sections.length ? sections : [{ name: 'Default', rowCount: ROWS, seatsPerRow: COLS, seatClass: 'STANDARD', price: 90000 }]
+}
+
+export function SeatMapDesignerPage({ asModal, onClose, onSave }: { asModal?: boolean; onClose?: () => void; onSave?: (savedMap: SavedSeatMap) => void }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
+  const [mapName, setMapName] = useState('')
+  const [mapVenue, setMapVenue] = useState('')
+  const [mapAddress, setMapAddress] = useState('')
   const [rows, setRows] = useState(ROWS)
   const [cols, setCols] = useState(COLS)
   const [seatSize, setSeatSize] = useState(26)
@@ -97,7 +183,30 @@ export function SeatMapDesignerPage({ asModal, onClose }: { asModal?: boolean; o
   }
 
   function saveMap() {
-    setSaveNote(`Seat map saved with ${seats.length} seats.`)
+    const name = mapName.trim() || `Seat Map ${new Date().toLocaleTimeString()}`
+    const sections = buildSectionsFromSeats(seats, cols, seatPrices)
+    const seatData = seats.map((s) => ({ row: s.row, col: s.col, tone: s.tone }))
+
+    const newMap: SavedSeatMap = {
+      id: `seatmap-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      name,
+      venue: mapVenue.trim() || 'Custom Venue',
+      address: mapAddress.trim() || 'Custom Address',
+      rows,
+      cols,
+      sections,
+      seats: seatData,
+    }
+
+    const existing = loadSavedSeatMaps()
+    saveSeatMapsToStorage([...existing, newMap])
+    setSaveNote(`Seat map "${name}" saved with ${seats.length} seats.`)
+
+    if (onSave) {
+      onSave(newMap)
+    } else if (onClose) {
+      onClose()
+    }
   }
 
   return (
@@ -125,7 +234,36 @@ export function SeatMapDesignerPage({ asModal, onClose }: { asModal?: boolean; o
 
       <div className="seat-designer-layout">
         <aside className="admin-panel seat-designer-sidebar">
-          <h2>Seat type brush</h2>
+          <h2>Seat Map Details</h2>
+          <label className="field">
+            <span>Map name *</span>
+            <input
+              type="text"
+              placeholder="e.g. Main Hall, Screen 1..."
+              value={mapName}
+              onChange={(e) => setMapName(e.target.value)}
+            />
+          </label>
+          <label className="field">
+            <span>Venue</span>
+            <input
+              type="text"
+              placeholder="e.g. TicketRush Arena"
+              value={mapVenue}
+              onChange={(e) => setMapVenue(e.target.value)}
+            />
+          </label>
+          <label className="field">
+            <span>Address</span>
+            <input
+              type="text"
+              placeholder="e.g. District 1, HCMC"
+              value={mapAddress}
+              onChange={(e) => setMapAddress(e.target.value)}
+            />
+          </label>
+
+          <h3 style={{ marginTop: 16 }}>Seat type brush</h3>
           <p>Drag to select an area. Releasing mouse applies the selected seat type automatically.</p>
           <label className="field">
             <span>Rows</span>
@@ -184,10 +322,7 @@ export function SeatMapDesignerPage({ asModal, onClose }: { asModal?: boolean; o
             <button className="secondary-button" type="button" onClick={() => { setDragStart(null); setDragCurrent(null) }} disabled={!selectedSeatIds.length}>
               Clear selection
             </button>
-            <button className="primary-button compact-button" type="button" onClick={() => {
-              saveMap()
-              if (onClose) onClose()
-            }}>
+            <button className="primary-button compact-button" type="button" onClick={saveMap}>
               Save map
               <span>
                 <Save size={16} strokeWidth={2.5} />

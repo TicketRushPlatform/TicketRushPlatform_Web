@@ -292,29 +292,36 @@ export function SeatSelectionPage() {
           <div className="stage seat-stage">{event?.kind === 'MOVIE' ? 'Screen' : 'Stage'}</div>
 
           <div className="seat-grid-wrap" aria-label="Seat selection map">
-            {rowGroups.map((group) => (
-              <div className="seat-row" key={group.row}>
-                <span className="seat-row-label">{group.row}</span>
-                <div className="seat-row-cells">
-                  {group.seats.map((seat) => {
-                    const isSelected = selectedSeatIds.includes(seat.id)
-                    return (
-                      <button
-                        className={`seat-cell ${seatClassTone(seat.seatClass)} ${seat.status.toLowerCase()} ${isSelected ? 'selected' : ''}`}
-                        key={seat.id}
-                        type="button"
-                        disabled={seat.status !== 'AVAILABLE'}
-                        onClick={() => toggleSeat(seat)}
-                        title={`${seat.section} ${seat.row}${seat.number} - ${formatCurrency(seat.price)}`}
-                        aria-label={`Seat ${seat.row}${seat.number}, ${seat.status}`}
-                      >
-                        {seat.number}
-                      </button>
-                    )
-                  })}
+            {rowGroups.map((group) => {
+              const maxCols = Math.max(...seats.map((s) => s.number))
+              return (
+                <div className="seat-row" key={group.row}>
+                  <span className="seat-row-label">{group.row}</span>
+                  <div className="seat-row-cells">
+                    {Array.from({ length: maxCols }, (_, i) => i + 1).map((colNumber) => {
+                      const seat = group.seats.find((s) => s.number === colNumber)
+                      if (!seat) {
+                        return <div key={`empty-${colNumber}`} style={{ width: 34, height: 34, flex: '0 0 34px' }} />
+                      }
+                      const isSelected = selectedSeatIds.includes(seat.id)
+                      return (
+                        <button
+                          className={`seat-cell ${seatClassTone(seat.seatClass)} ${seat.status.toLowerCase()} ${isSelected ? 'selected' : ''}`}
+                          key={seat.id}
+                          type="button"
+                          disabled={seat.status !== 'AVAILABLE'}
+                          onClick={() => toggleSeat(seat)}
+                          title={`${seat.section} ${seat.row}${seat.number} - ${formatCurrency(seat.price)}`}
+                          aria-label={`Seat ${seat.row}${seat.number}, ${seat.status}`}
+                        >
+                          {seat.number}
+                        </button>
+                      )
+                    })}
+                  </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
 
           <div className="seat-legend">

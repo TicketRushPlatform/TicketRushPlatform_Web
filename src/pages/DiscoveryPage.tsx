@@ -126,7 +126,10 @@ export function DiscoveryPage() {
         if (sort === 'price-asc') return first.priceFrom - second.priceFrom
         if (sort === 'price-desc') return second.priceFrom - first.priceFrom
         if (sort === 'name-asc') return first.name.localeCompare(second.name)
-        return first.date.localeCompare(second.date)
+        // Soonest first: sort by original listing order (newest created events first)
+        const firstIdx = events.indexOf(first)
+        const secondIdx = events.indexOf(second)
+        return secondIdx - firstIdx
       })
   }, [category, date, events, query, sort, filterByMyEvents, auth.user])
   const availableCategories = useMemo(

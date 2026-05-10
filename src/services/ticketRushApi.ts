@@ -1,6 +1,7 @@
 import { generateSeats } from '../data/demoTicketRush'
 import { config } from '../config/env'
 import { loadTokens } from './authStorage'
+import { loadSavedSeatMaps } from '../pages/SeatMapDesignerPage'
 import type {
   Booking,
   DashboardMetrics,
@@ -482,7 +483,51 @@ export function subscribeSeatsStatus(showtimeId: string, onStatus: (status: Real
       try {
         const message = JSON.parse(event.data as string) as SeatStatusSocketMessage
         if (message.type === 'seat_status') {
-          onStatus(normalizeRealtimeStatus(message.data))
+          const normalized = normalizeRealtimeStatus(message.data)
+          let seats = normalized.seats.map((seat) => ({
+            id: seat.id,
+            showtimeId: normalized.showtimeId,
+            section: 'Seat',
+            row: seat.row,
+            number: seat.number,
+            seatClass: seat.seatClass,
+            price: seat.price ?? 0,
+            status: seat.status,
+            expiresAt: seat.expiresAt,
+          }))
+          let { total, available, holding, sold } = normalized
+        
+          if (seats.length === 0) {
+            const state = getFreshState()
+            const localSeats = state.seats.filter((seat) => seat.showtimeId === showtimeId)
+            if (localSeats.length > 0) {
+              seats = localSeats.map(seat => ({
+                id: seat.id,
+                showtimeId: seat.showtimeId,
+                section: 'Seat',
+                row: seat.row,
+                number: seat.number,
+                seatClass: seat.seatClass,
+                price: seat.price,
+                status: seat.status,
+                expiresAt: seat.expiresAt
+              }))
+              const counts = seatCounts(state, showtimeId)
+              total = counts.total
+              available = counts.available
+              holding = counts.holding
+              sold = counts.sold
+            }
+          }
+        
+          onStatus({
+            showtimeId: normalized.showtimeId,
+            seats: seats.sort((first, second) => first.row.localeCompare(second.row) || first.number - second.number),
+            total,
+            available,
+            holding,
+            sold,
+          })
         }
       } catch {
         onError?.()
@@ -554,7 +599,10 @@ async function seedCatalogFromBackend(): Promise<void> {
     const date = start.toISOString().slice(0, 10)
     const time = `${String(start.getHours()).padStart(2, '0')}:${String(start.getMinutes()).padStart(2, '0')}`
     const kind = item.event_type
-    const sections = buildFallbackSections(kind)
+    // Determine the base sections for the event's primary showtime metadata (like capacity and priceFrom)
+    const savedMaps = loadSavedSeatMaps()
+    const primaryMatchedMap = savedMaps.find((m) => m.name === primaryShowtime.seat_map_name)
+    const eventSections = primaryMatchedMap?.sections?.length ? primaryMatchedMap.sections : buildFallbackSections(kind)
 
     const event: TicketRushEvent = {
       id: item.id,
@@ -569,12 +617,12 @@ async function seedCatalogFromBackend(): Promise<void> {
       city: item.city ?? 'Ho Chi Minh City',
       address: item.address ?? primaryShowtime.address,
       organizer: item.organizer ?? (kind === 'MOVIE' ? 'TicketRush Cinema' : 'TicketRush'),
-      priceFrom: sections[0].price,
+      priceFrom: eventSections[0].price,
       imageUrl:
         item.image_url ??
         'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&w=1000&q=80',
       status: (item.status as TicketStatus | undefined) ?? (item.is_flash_sale ? 'Flash Sale' : 'Available'),
-      capacity: sections.reduce((sum, section) => sum + section.rowCount * section.seatsPerRow, 0),
+      capacity: eventSections.reduce((sum, section) => sum + section.rowCount * section.seatsPerRow, 0),
       sold: 0,
       tags: [kind === 'MOVIE' ? 'movie' : 'event', (item.category ?? 'live').toLowerCase()],
       description: item.description || 'No description provided.',
@@ -602,7 +650,9 @@ async function seedCatalogFromBackend(): Promise<void> {
         screenName: kind === 'MOVIE' ? 'Screen 1' : undefined,
         format: kind === 'MOVIE' ? '2D' : undefined,
       })
-      seats.push(...generateSeats(apiShowtime.id, sections))
+      const showtimeMatchedMap = savedMaps.find((m) => m.name === apiShowtime.seat_map_name)
+      const showtimeSections = showtimeMatchedMap?.sections?.length ? showtimeMatchedMap.sections : buildFallbackSections(kind)
+      seats.push(...generateSeats(apiShowtime.id, showtimeSections, 0, showtimeMatchedMap?.seats))
     }
   }
 
@@ -778,25 +828,50 @@ export async function getSeatsStatus(showtimeId: string): Promise<SeatStatusResp
   const response = await bookingApiRequest<BookingSeatStatusResponse>(`/showtimes/${encodeURIComponent(showtimeId)}/seats`)
   const normalized = normalizeRealtimeStatus(response)
 
-  return {
+  let seats = normalized.seats.map((seat) => ({
+    id: seat.id,
     showtimeId: normalized.showtimeId,
-    seats: normalized.seats
-      .map((seat) => ({
+    section: 'Seat',
+    row: seat.row,
+    number: seat.number,
+    seatClass: seat.seatClass,
+    price: seat.price ?? 0,
+    status: seat.status,
+    expiresAt: seat.expiresAt,
+  }))
+  let { total, available, holding, sold } = normalized
+
+  if (seats.length === 0) {
+    await ensureCatalogBootstrap()
+    const state = getFreshState()
+    const localSeats = state.seats.filter((seat) => seat.showtimeId === showtimeId)
+    if (localSeats.length > 0) {
+      seats = localSeats.map(seat => ({
         id: seat.id,
-        showtimeId: normalized.showtimeId,
+        showtimeId: seat.showtimeId,
         section: 'Seat',
         row: seat.row,
         number: seat.number,
         seatClass: seat.seatClass,
-        price: seat.price ?? 0,
+        price: seat.price,
         status: seat.status,
-        expiresAt: seat.expiresAt,
+        expiresAt: seat.expiresAt
       }))
-      .sort((first, second) => first.row.localeCompare(second.row) || first.number - second.number),
-    total: normalized.total,
-    available: normalized.available,
-    holding: normalized.holding,
-    sold: normalized.sold,
+      const counts = seatCounts(state, showtimeId)
+      total = counts.total
+      available = counts.available
+      holding = counts.holding
+      sold = counts.sold
+    }
+  }
+
+  return {
+    showtimeId: normalized.showtimeId,
+    seats: seats.sort((first, second) => first.row.localeCompare(second.row) || first.number - second.number),
+    total,
+    available,
+    holding,
+    sold,
   }
 }
 
@@ -1012,9 +1087,41 @@ export async function updateEvent(eventId: string, payload: CreateEventPayload):
     })
     await putEventApiNoResponse(`/events/${encodeURIComponent(eventId)}/showtimes`, showtimePayload)
   }
+  // Refresh the catalog from backend without destroying booking-related local state.
+  // Using resetDemoState() here was a bug: it cleared all localStorage including
+  // bookings/tickets/queues, and the re-seed generated new random seat IDs that
+  // didn't match the booking service's real seat inventory, causing "lost seats".
   catalogBootstrapPromise = null
-  resetDemoState()
-  await ensureCatalogBootstrap()
+  try {
+    const previousState = readState()
+    // Preserve booking-related state across the catalog refresh
+    const preservedBookings = previousState.bookings ?? []
+    const preservedTickets = previousState.tickets ?? []
+    const preservedQueues = previousState.queues ?? []
+    const preservedNotifications = previousState.notifications ?? []
+    const preservedSoundSearchLogs = previousState.soundSearchLogs ?? []
+
+    // Clear and re-seed the catalog from backend
+    if (typeof window !== 'undefined') {
+      window.localStorage.removeItem(STORAGE_KEY)
+    }
+    await seedCatalogFromBackend()
+
+    // Merge back the preserved state
+    const freshState = readState()
+    writeState({
+      ...freshState,
+      bookings: preservedBookings,
+      tickets: preservedTickets,
+      queues: preservedQueues,
+      notifications: preservedNotifications,
+      soundSearchLogs: preservedSoundSearchLogs,
+    })
+  } catch {
+    // Fallback: force full reset if partial refresh fails
+    resetDemoState()
+    await ensureCatalogBootstrap()
+  }
   const state = getFreshState()
   const existing = state.events.find((event) => event.id === eventId)
   if (!existing) {
@@ -1078,6 +1185,38 @@ export async function recognizeHummedSong(audioBlob: Blob): Promise<SoundSearchR
   }
 
   return results
+}
+
+export async function searchSoundtrackByName(query: string): Promise<SoundSearchResult[]> {
+  await ensureCatalogBootstrap()
+  await delay(400)
+  const state = getFreshState()
+  const lowerQuery = query.toLowerCase()
+  const movieEvents = state.events.filter((event) => event.kind === 'MOVIE' && event.soundtracks?.length)
+  const scored = movieEvents.flatMap((event) =>
+    (event.soundtracks ?? []).map((track) => {
+      let confidence: number
+      if (track.title.toLowerCase().includes(lowerQuery)) confidence = 95
+      else if (track.artist.toLowerCase().includes(lowerQuery)) confidence = 88
+      else if (event.name.toLowerCase().includes(lowerQuery)) confidence = 82
+      else if (event.movie?.synopsis?.toLowerCase().includes(lowerQuery)) confidence = 70
+      else confidence = 0
+
+      return {
+        id: createId('sound-result'),
+        soundtrack: track,
+        event: enrichEvent(state, event),
+        nextShowtime: state.showtimes.find((showtime) => showtime.eventId === event.id),
+        confidence,
+        matchedPhrase: confidence > 0 ? `Text search matched "${track.title}" by "${track.artist}".` : '',
+      }
+    }),
+  )
+
+  return scored
+    .filter((result) => result.confidence > 0)
+    .sort((first, second) => second.confidence - first.confidence)
+    .slice(0, 6)
 }
 
 export async function getDashboardMetrics(): Promise<DashboardMetrics> {

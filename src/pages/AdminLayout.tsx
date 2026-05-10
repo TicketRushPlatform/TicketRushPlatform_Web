@@ -1,6 +1,7 @@
 import {
   BarChart3,
   CalendarPlus,
+  Film,
   KeyRound,
   LogOut,
   Map,
@@ -44,6 +45,10 @@ export function AdminLayout() {
         <NavLink className={({ isActive }) => `admin-sidebar-link ${isActive ? 'active' : ''}`} to="/admin/events/new/seat-map">
           <Map size={18} strokeWidth={2.5} />
           Seat Maps
+        </NavLink>
+        <NavLink className={({ isActive }) => `admin-sidebar-link ${isActive ? 'active' : ''}`} to="/admin/movies">
+          <Film size={18} strokeWidth={2.5} />
+          Movies
         </NavLink>
 
         <p className="admin-sidebar-section">Platform</p>

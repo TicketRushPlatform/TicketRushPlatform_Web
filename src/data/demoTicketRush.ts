@@ -237,28 +237,51 @@ function rowLabel(index: number): string {
   return alphabet[index % alphabet.length]
 }
 
-export function generateSeats(showtimeId: string, sections: SeatSectionInput[], soldCount = 0): Seat[] {
+export function generateSeats(
+  showtimeId: string,
+  sections: SeatSectionInput[],
+  soldCount = 0,
+  customGrid?: Array<{ row: number; col: number; tone: string }>
+): Seat[] {
   const seats: Seat[] = []
-  let globalRow = 0
 
-  sections.forEach((section) => {
-    for (let row = 0; row < section.rowCount; row += 1) {
-      const label = rowLabel(globalRow)
-      for (let number = 1; number <= section.seatsPerRow; number += 1) {
-        seats.push({
-          id: `${showtimeId}-${section.name.toLowerCase().replace(/\s+/g, '-')}-${label}${number}`,
-          showtimeId,
-          section: section.name,
-          row: label,
-          number,
-          seatClass: section.seatClass,
-          price: section.price,
-          status: 'AVAILABLE',
-        })
+  if (customGrid && customGrid.length > 0) {
+    customGrid.forEach((cell) => {
+      const sectionName = cell.tone.charAt(0).toUpperCase() + cell.tone.slice(1)
+      const section = sections.find((s) => s.name === sectionName)
+      const label = rowLabel(cell.row)
+      seats.push({
+        id: `${showtimeId}-${sectionName.toLowerCase().replace(/\s+/g, '-')}-${label}${cell.col + 1}`,
+        showtimeId,
+        section: sectionName,
+        row: label,
+        number: cell.col + 1,
+        seatClass: section?.seatClass ?? 'STANDARD',
+        price: section?.price ?? 90000,
+        status: 'AVAILABLE',
+      })
+    })
+  } else {
+    let globalRow = 0
+    sections.forEach((section) => {
+      for (let row = 0; row < section.rowCount; row += 1) {
+        const label = rowLabel(globalRow)
+        for (let number = 1; number <= section.seatsPerRow; number += 1) {
+          seats.push({
+            id: `${showtimeId}-${section.name.toLowerCase().replace(/\s+/g, '-')}-${label}${number}`,
+            showtimeId,
+            section: section.name,
+            row: label,
+            number,
+            seatClass: section.seatClass,
+            price: section.price,
+            status: 'AVAILABLE',
+          })
+        }
+        globalRow += 1
       }
-      globalRow += 1
-    }
-  })
+    })
+  }
 
   seats.slice(0, soldCount).forEach((seat) => {
     seat.status = 'SOLD'

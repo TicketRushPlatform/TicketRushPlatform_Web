@@ -1,7 +1,7 @@
-import { ArrowRight, LoaderCircle, Mic, MicOff, Music2, Radio, RotateCcw, Ticket } from 'lucide-react'
+import { ArrowRight, LoaderCircle, Mic, MicOff, Music2, Radio, RotateCcw, Search, Ticket } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { formatDate, recognizeHummedSong } from '../services/ticketRushApi'
+import { formatDate, recognizeHummedSong, searchSoundtrackByName } from '../services/ticketRushApi'
 import type { SoundSearchResult } from '../types'
 
 type RecorderState = 'idle' | 'recording' | 'processing' | 'done' | 'denied' | 'unsupported'
@@ -14,6 +14,10 @@ export function SoundSearchPage() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const chunksRef = useRef<BlobPart[]>([])
   const streamRef = useRef<MediaStream | null>(null)
+  const [voiceQuery, setVoiceQuery] = useState('')
+  const [isVoiceListening, setIsVoiceListening] = useState(false)
+  const [isTextSearching, setIsTextSearching] = useState(false)
+  const voiceRecognitionRef = useRef<any>(null)
 
   const stateCopy = useMemo(() => {
     if (recorderState === 'recording') return { title: 'Listening to your melody', text: 'Hum or sing the movie soundtrack for up to 15 seconds.' }
@@ -94,6 +98,42 @@ export function SoundSearchPage() {
     setRecorderState('idle')
   }
 
+  async function handleTextSearch(query: string) {
+    if (!query.trim()) return
+    setIsTextSearching(true)
+    try {
+      const matches = await searchSoundtrackByName(query.trim())
+      setResults(matches)
+      setRecorderState('done')
+    } catch {
+      // fallback - use the humming search
+    } finally {
+      setIsTextSearching(false)
+    }
+  }
+
+  function startVoiceSearch() {
+    const SpeechRecognitionApi = (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition
+    if (!SpeechRecognitionApi) return
+    const recognition = new SpeechRecognitionApi()
+    recognition.lang = 'en-US'
+    recognition.interimResults = false
+    recognition.maxAlternatives = 1
+    recognition.onresult = (event: any) => {
+      const transcript = event.results[0]?.[0]?.transcript ?? ''
+      if (transcript) {
+        setVoiceQuery(transcript)
+        void handleTextSearch(transcript)
+      }
+      setIsVoiceListening(false)
+    }
+    recognition.onerror = () => setIsVoiceListening(false)
+    recognition.onend = () => setIsVoiceListening(false)
+    voiceRecognitionRef.current = recognition
+    recognition.start()
+    setIsVoiceListening(true)
+  }
+
   return (
     <section className="sound-search-page" aria-labelledby="sound-search-title">
       <div className="sound-hero">
@@ -145,6 +185,40 @@ export function SoundSearchPage() {
               Reset
             </button>
           </div>
+        </div>
+
+        <div className="voice-search-bar" style={{ marginTop: 24 }}>
+          <div className="input-shell search-with-mic" style={{ maxWidth: 560, margin: '0 auto' }}>
+            <Search size={18} strokeWidth={2.5} />
+            <input
+              type="text"
+              placeholder="Or type / speak a song or movie name..."
+              value={voiceQuery}
+              onChange={(e) => setVoiceQuery(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') void handleTextSearch(voiceQuery) }}
+            />
+            <button
+              type="button"
+              className={`mic-search-button ${isVoiceListening ? 'listening' : ''}`}
+              aria-label={isVoiceListening ? 'Stop voice search' : 'Voice search'}
+              onClick={() => {
+                if (isVoiceListening) {
+                  voiceRecognitionRef.current?.stop()
+                  setIsVoiceListening(false)
+                } else {
+                  startVoiceSearch()
+                }
+              }}
+            >
+              {isVoiceListening ? <MicOff size={18} strokeWidth={2.5} /> : <Mic size={18} strokeWidth={2.5} />}
+            </button>
+          </div>
+          {isTextSearching && (
+            <p style={{ textAlign: 'center', marginTop: 8, color: 'var(--muted-foreground)', fontWeight: 700 }}>
+              <LoaderCircle className="spin" size={16} style={{ verticalAlign: 'middle', marginRight: 6 }} />
+              Searching soundtracks...
+            </p>
+          )}
         </div>
       </div>
 
