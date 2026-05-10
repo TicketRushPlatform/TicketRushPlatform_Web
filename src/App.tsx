@@ -5,6 +5,7 @@ import { useAuth } from './auth/AuthContext'
 import { AdminCreateEventPage } from './pages/AdminCreateEventPage'
 import { AdminDashboardPage } from './pages/AdminDashboardPage'
 import { AdminLayout } from './pages/AdminLayout'
+import { AdminMoviesPage } from './pages/AdminMoviesPage'
 import { AuthPage } from './pages/AuthPage'
 import { CheckoutPage } from './pages/CheckoutPage'
 import { DiscoveryPage } from './pages/DiscoveryPage'
@@ -42,6 +43,7 @@ function App() {
           <Route path="events/new" element={<AdminCreateEventPage />} />
           <Route path="events/:eventId/edit" element={<AdminCreateEventPage />} />
           <Route path="events/new/seat-map" element={<SeatMapDesignerPage />} />
+          <Route path="movies" element={<AdminMoviesPage />} />
           <Route path="users" element={<UserManagementPage />} />
           <Route path="permissions" element={<PermissionManagementPage />} />
         </Route>

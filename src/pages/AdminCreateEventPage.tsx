@@ -6,23 +6,48 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
+  Film,
   ImagePlus,
   Plus,
   Save,
   Ticket,
   Trash2,
+  X,
 } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
+import { Link, useLocation, useParams } from 'react-router-dom'
 import { createEvent, getEvent, getShowtimesByEvent, updateEvent } from '../services/ticketRushApi'
-import type { EventCategory, TicketStatus } from '../types'
-import { SeatMapDesignerPage } from './SeatMapDesignerPage'
+import type { EventCategory, SeatSectionInput, TicketStatus } from '../types'
+import type { EnrichedTmdbMovie } from '../services/tmdbApi'
+import { SeatMapDesignerPage, loadSavedSeatMaps, type SavedSeatMap } from './SeatMapDesignerPage'
+import { MoviePickerModal } from './MoviePickerModal'
 
-const availableSeatMaps = [
-  { id: 'concert-main', label: 'Concert Main Hall', venue: 'TicketRush Arena', address: 'District 1, Ho Chi Minh City' },
-  { id: 'theater-classic', label: 'Classic Theater', venue: 'Grand Theater', address: 'District 3, Ho Chi Minh City' },
-  { id: 'stadium-open', label: 'Open Stadium', venue: 'City Stadium', address: 'District 7, Ho Chi Minh City' },
+const defaultSeatMaps: SavedSeatMap[] = [
+  {
+    id: 'concert-main',
+    name: 'Concert Main Hall',
+    venue: 'TicketRush Arena',
+    address: 'District 1, Ho Chi Minh City',
+    rows: 14,
+    cols: 18,
+    sections: [
+      { name: 'VIP', rowCount: 3, seatsPerRow: 18, seatClass: 'VIP', price: 180000 },
+      { name: 'Reserved', rowCount: 4, seatsPerRow: 18, seatClass: 'PREMIUM', price: 120000 },
+      { name: 'Standard', rowCount: 4, seatsPerRow: 18, seatClass: 'STANDARD', price: 90000 },
+      { name: 'Balcony', rowCount: 3, seatsPerRow: 18, seatClass: 'STANDARD', price: 70000 },
+    ],
+    seats: [],
+  },
 ]
+
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result as string)
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
+}
 
 type AdminShowtimeRow = {
   id?: string
@@ -35,10 +60,10 @@ type AdminShowtimeRow = {
   durationMs: number
 }
 
-const defaultShowtimeRow = (): AdminShowtimeRow => ({
+const defaultShowtimeRow = (seatMaps: SavedSeatMap[]): AdminShowtimeRow => ({
   date: '',
   time: '',
-  seatMapId: availableSeatMaps[0].id,
+  seatMapId: seatMaps[0]?.id ?? 'concert-main',
   queueEnabled: false,
   queueLimit: 200,
   durationMs: 120 * 60 * 1000,
@@ -46,25 +71,68 @@ const defaultShowtimeRow = (): AdminShowtimeRow => ({
 
 export function AdminCreateEventPage({ asModal, onSuccess, onClose }: { asModal?: boolean; onSuccess?: (eventId: string) => void; onClose?: () => void }) {
   const { eventId: paramEventId } = useParams<{ eventId: string }>()
+  const location = useLocation()
   const eventId = asModal ? undefined : paramEventId
   const isEditMode = Boolean(eventId)
+  const [availableSeatMaps, setAvailableSeatMaps] = useState<SavedSeatMap[]>(() => {
+    const saved = loadSavedSeatMaps()
+    return saved.length ? saved : defaultSeatMaps
+  })
   const [eventName, setEventName] = useState('')
   const [category, setCategory] = useState<EventCategory>('Music')
   const [status, setStatus] = useState<TicketStatus>('Available')
   const [city, setCity] = useState('Ho Chi Minh City')
   const [description, setDescription] = useState('')
   const [posterPreviewUrl, setPosterPreviewUrl] = useState('')
+  const [posterFile, setPosterFile] = useState<File | null>(null)
   const [eventDurationMinutes, setEventDurationMinutes] = useState(120)
-  const [showtimes, setShowtimes] = useState<AdminShowtimeRow[]>([defaultShowtimeRow()])
+  const [showtimes, setShowtimes] = useState<AdminShowtimeRow[]>([defaultShowtimeRow(availableSeatMaps)])
   const [maxTicketsPerBooking, setMaxTicketsPerBooking] = useState<string>('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isLoadingEvent, setIsLoadingEvent] = useState(false)
   const [notice, setNotice] = useState<{ tone: 'success' | 'error'; text: string } | null>(null)
   const [isCreatingSeatMap, setIsCreatingSeatMap] = useState(false)
+  const [isMoviePickerOpen, setIsMoviePickerOpen] = useState(false)
+  const [selectedTmdbMovie, setSelectedTmdbMovie] = useState<EnrichedTmdbMovie | null>(null)
+  const isMovieCategory = category === 'Cinema'
+
+  // Accept TMDB movie data from navigation state (from AdminMoviesPage)
+  useEffect(() => {
+    const state = location.state as { tmdbMovie?: EnrichedTmdbMovie } | null
+    if (state?.tmdbMovie && !isEditMode) {
+      applyTmdbMovie(state.tmdbMovie)
+      // Clear the state so it doesn't re-apply on re-render
+      window.history.replaceState({}, document.title)
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  function applyTmdbMovie(movie: EnrichedTmdbMovie) {
+    setSelectedTmdbMovie(movie)
+    setCategory('Cinema')
+    setEventName(movie.title)
+    setDescription(movie.overview)
+    setPosterPreviewUrl(movie.posterUrl)
+    setEventDurationMinutes(movie.runtime || 120)
+    setCity('Ho Chi Minh City')
+  }
+
+  function handleMovieSelected(movie: EnrichedTmdbMovie) {
+    applyTmdbMovie(movie)
+    setIsMoviePickerOpen(false)
+  }
+
+  function handleClearMovie() {
+    setSelectedTmdbMovie(null)
+  }
 
   function updateShowtime(index: number, patch: Partial<AdminShowtimeRow>) {
     setShowtimes((current) => current.map((item, itemIndex) => (itemIndex === index ? { ...item, ...patch } : item)))
   }
+
+  const refreshSeatMaps = useCallback(() => {
+    const saved = loadSavedSeatMaps()
+    setAvailableSeatMaps(saved.length ? saved : defaultSeatMaps)
+  }, [])
 
   function onPosterSelected(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]
@@ -74,6 +142,7 @@ export function AdminCreateEventPage({ asModal, onSuccess, onClose }: { asModal?
       event.target.value = ''
       return
     }
+    setPosterFile(file)
     setPosterPreviewUrl(URL.createObjectURL(file))
   }
 
@@ -119,14 +188,14 @@ export function AdminCreateEventPage({ asModal, onSuccess, onClose }: { asModal?
               id: item.id,
               date,
               time,
-              seatMapId: availableSeatMaps.find((seatMap) => seatMap.label === item.seatMapName)?.id ?? availableSeatMaps[0].id,
+              seatMapId: availableSeatMaps.find((seatMap) => seatMap.name === item.seatMapName)?.id ?? availableSeatMaps[0].id,
               queueEnabled: Boolean(item.queueEnabled),
               queueLimit: item.queueLimit ?? 200,
               durationMs,
             }
           })
           .filter((item) => item.date && item.time)
-        setShowtimes(mappedShowtimes.length ? mappedShowtimes : [defaultShowtimeRow()])
+        setShowtimes(mappedShowtimes.length ? mappedShowtimes : [defaultShowtimeRow(availableSeatMaps)])
       } catch (error) {
         if (!isCancelled) {
           setNotice({ tone: 'error', text: error instanceof Error ? error.message : 'Could not load event to edit.' })
@@ -155,38 +224,77 @@ export function AdminCreateEventPage({ asModal, onSuccess, onClose }: { asModal?
     setIsSubmitting(true)
     setNotice(null)
     try {
-      const posterForApi =
-        posterPreviewUrl.startsWith('blob:') ? undefined : posterPreviewUrl.trim() || undefined
+      // Convert blob file to data URL for API if a file was chosen
+      let posterForApi: string | undefined
+      if (posterFile) {
+        posterForApi = await fileToDataUrl(posterFile)
+      } else if (posterPreviewUrl && !posterPreviewUrl.startsWith('blob:')) {
+        posterForApi = posterPreviewUrl.trim() || undefined
+      }
+
+      const isMovie = isMovieCategory || Boolean(selectedTmdbMovie)
+      const primarySeatMap = availableSeatMaps.find((item) => item.id === primaryShowtime.seatMapId)
+
+      // Build sections from seat map if available, otherwise use defaults
+      const buildSections = (): SeatSectionInput[] => {
+        if (isMovie) {
+          return [
+            { name: 'Front', rowCount: 2, seatsPerRow: 10, seatClass: 'STANDARD', price: 120000 },
+            { name: 'Center', rowCount: 3, seatsPerRow: 10, seatClass: 'VIP', price: 180000 },
+            { name: 'Back', rowCount: 3, seatsPerRow: 10, seatClass: 'PREMIUM', price: 260000 },
+          ]
+        }
+        if (primarySeatMap?.sections?.length) {
+          return primarySeatMap.sections
+        }
+        return [{ name: 'Default', rowCount: 10, seatsPerRow: 12, seatClass: 'STANDARD', price: 120000 }]
+      }
 
       const payload: Parameters<typeof createEvent>[0] = {
-        kind: 'EVENT',
+        kind: isMovie ? 'MOVIE' : 'EVENT',
         name: eventName.trim(),
-        category,
+        category: isMovie ? 'Cinema' : category,
         status,
         date: primaryShowtime.date,
         time: primaryShowtime.time,
-        venue: availableSeatMaps.find((item) => item.id === primaryShowtime.seatMapId)?.venue ?? city.trim(),
+        venue: primarySeatMap?.venue ?? city.trim(),
         city: city.trim(),
-        address: availableSeatMaps.find((item) => item.id === primaryShowtime.seatMapId)?.address ?? city.trim(),
+        address: primarySeatMap?.address ?? city.trim(),
         description: description.trim(),
         imageUrl: posterForApi,
         isFlashSale: status === 'Flash Sale',
         ...(isEditMode ? { durationMinutes: eventDurationMinutes } : {}),
         showtimes: showtimes
           .filter((showtime) => showtime.date && showtime.time)
-          .map((showtime) => ({
-            ...(showtime.id ? { id: showtime.id } : {}),
-            date: showtime.date,
-            time: showtime.time,
-            seatMapName: availableSeatMaps.find((item) => item.id === showtime.seatMapId)?.label ?? 'Auto map',
-            venue: availableSeatMaps.find((item) => item.id === showtime.seatMapId)?.venue ?? city.trim(),
-            address: availableSeatMaps.find((item) => item.id === showtime.seatMapId)?.address ?? city.trim(),
-            queueEnabled: showtime.queueEnabled,
-            queueLimit: showtime.queueEnabled ? showtime.queueLimit : undefined,
-            durationMs: showtime.durationMs,
-          })),
-        sections: [{ name: 'Default', rowCount: 10, seatsPerRow: 12, seatClass: 'STANDARD', price: 120000 }],
+          .map((showtime) => {
+            const seatMap = availableSeatMaps.find((item) => item.id === showtime.seatMapId)
+            return {
+              ...(showtime.id ? { id: showtime.id } : {}),
+              date: showtime.date,
+              time: showtime.time,
+              seatMapName: seatMap?.name ?? 'Auto map',
+              venue: seatMap?.venue ?? city.trim(),
+              address: seatMap?.address ?? city.trim(),
+              queueEnabled: showtime.queueEnabled,
+              queueLimit: showtime.queueEnabled ? showtime.queueLimit : undefined,
+              durationMs: isMovie ? (selectedTmdbMovie?.runtime ?? eventDurationMinutes) * 60 * 1000 : showtime.durationMs,
+            }
+          }),
+        sections: buildSections(),
         maxTicketsPerBooking: maxTicketsPerBooking.trim() ? Number(maxTicketsPerBooking.trim()) : null,
+        ...(isMovie && selectedTmdbMovie
+          ? {
+              movie: {
+                director: selectedTmdbMovie.director,
+                cast: selectedTmdbMovie.cast,
+                durationMinutes: selectedTmdbMovie.runtime,
+                ageRating: selectedTmdbMovie.ageRating,
+                trailerUrl: selectedTmdbMovie.trailerUrl,
+                genres: selectedTmdbMovie.genres,
+                synopsis: selectedTmdbMovie.overview,
+              },
+            }
+          : {}),
       }
       if (isEditMode && eventId) {
         await updateEvent(eventId, payload)
@@ -194,7 +302,7 @@ export function AdminCreateEventPage({ asModal, onSuccess, onClose }: { asModal?
         if (onSuccess) onSuccess(eventId)
       } else {
         const created = await createEvent(payload)
-        setNotice({ tone: 'success', text: 'Event created successfully via backend API.' })
+        setNotice({ tone: 'success', text: isMovie ? 'Movie event created successfully.' : 'Event created successfully via backend API.' })
         if (onSuccess) onSuccess(created.id)
       }
     } catch (error) {
@@ -250,7 +358,7 @@ export function AdminCreateEventPage({ asModal, onSuccess, onClose }: { asModal?
           <div className="create-form-grid">
             <label className="field span-2">
               <span>Event name</span>
-              <input type="text" placeholder="Neon Sunset Live" value={eventName} onChange={(event) => setEventName(event.target.value)} required />
+              <input type="text" placeholder="Neon Sunset Live" value={eventName} onChange={(event) => setEventName(event.target.value)} required disabled={Boolean(selectedTmdbMovie)} />
             </label>
 
             <label className="field">
@@ -259,8 +367,13 @@ export function AdminCreateEventPage({ asModal, onSuccess, onClose }: { asModal?
                 value={category}
                 valueLabel={category}
                 ariaLabel="Select category"
-                options={['Music', 'Sports', 'Theater', 'Festival', 'Workshop', 'Comedy'].map((item) => ({ value: item, label: item }))}
-                onChange={(value) => setCategory(value as EventCategory)}
+                options={['Music', 'Sports', 'Theater', 'Festival', 'Workshop', 'Comedy', 'Cinema'].map((item) => ({ value: item, label: item }))}
+                onChange={(value) => {
+                  setCategory(value as EventCategory)
+                  if (value !== 'Cinema') {
+                    setSelectedTmdbMovie(null)
+                  }
+                }}
               />
             </label>
 
@@ -275,6 +388,51 @@ export function AdminCreateEventPage({ asModal, onSuccess, onClose }: { asModal?
               />
             </label>
 
+            {/* Movie Picker for Cinema category */}
+            {isMovieCategory && (
+              <div className="field span-2">
+                <span>Movie from TMDB</span>
+                {selectedTmdbMovie ? (
+                  <div className="tmdb-movie-selected">
+                    <div className="tmdb-movie-selected-info">
+                      {selectedTmdbMovie.posterUrl && (
+                        <img
+                          className="tmdb-movie-selected-poster"
+                          src={selectedTmdbMovie.posterUrl}
+                          alt={selectedTmdbMovie.title}
+                        />
+                      )}
+                      <div className="tmdb-movie-selected-details">
+                        <h3>{selectedTmdbMovie.title}</h3>
+                        <p>{selectedTmdbMovie.director} · {selectedTmdbMovie.runtime} min · {selectedTmdbMovie.releaseDate?.slice(0, 4)}</p>
+                        <p className="tmdb-movie-selected-genres">{selectedTmdbMovie.genres.join(', ')}</p>
+                        <p className="tmdb-movie-selected-cast">{selectedTmdbMovie.cast.slice(0, 4).join(', ')}</p>
+                      </div>
+                    </div>
+                    <button
+                      className="secondary-button compact-button"
+                      type="button"
+                      onClick={handleClearMovie}
+                    >
+                      <X size={16} strokeWidth={2.5} />
+                      Remove
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    className="tmdb-movie-picker-trigger"
+                    type="button"
+                    onClick={() => setIsMoviePickerOpen(true)}
+                  >
+                    <div className="tmdb-movie-picker-icon">
+                      <Film size={28} strokeWidth={2} />
+                    </div>
+                    <span>Click to select a movie from TMDB</span>
+                  </button>
+                )}
+              </div>
+            )}
+
             <label className="field">
               <span>City</span>
               <input type="text" value={city} onChange={(event) => setCity(event.target.value)} required />
@@ -287,8 +445,43 @@ export function AdminCreateEventPage({ asModal, onSuccess, onClose }: { asModal?
                 rows={5}
                 value={description}
                 onChange={(event) => setDescription(event.target.value)}
+                disabled={Boolean(selectedTmdbMovie)}
               />
             </label>
+
+            {/* Movie metadata display (disabled fields) when TMDB movie is selected */}
+            {selectedTmdbMovie && (
+              <>
+                <label className="field">
+                  <span>Director</span>
+                  <input type="text" value={selectedTmdbMovie.director} disabled />
+                </label>
+                <label className="field">
+                  <span>Runtime (min)</span>
+                  <input type="text" value={`${selectedTmdbMovie.runtime} minutes`} disabled />
+                </label>
+                <label className="field">
+                  <span>Age Rating</span>
+                  <input type="text" value={selectedTmdbMovie.ageRating} disabled />
+                </label>
+                <label className="field">
+                  <span>Language</span>
+                  <input type="text" value={selectedTmdbMovie.language} disabled />
+                </label>
+                <label className="field span-2">
+                  <span>Cast</span>
+                  <input type="text" value={selectedTmdbMovie.cast.join(', ')} disabled />
+                </label>
+                <label className="field span-2">
+                  <span>Genres</span>
+                  <div className="tmdb-genre-chips">
+                    {selectedTmdbMovie.genres.map((g) => (
+                      <span className="chip" key={g}>{g}</span>
+                    ))}
+                  </div>
+                </label>
+              </>
+            )}
 
             <section className="field span-2">
               <span>Showtimes</span>
@@ -327,9 +520,9 @@ export function AdminCreateEventPage({ asModal, onSuccess, onClose }: { asModal?
                       </div>
                       <FilterSelect
                         value={showtime.seatMapId}
-                        valueLabel={availableSeatMaps.find((item) => item.id === showtime.seatMapId)?.label ?? 'Select map'}
+                        valueLabel={availableSeatMaps.find((item) => item.id === showtime.seatMapId)?.name ?? 'Select map'}
                         ariaLabel={`Select seat map for showtime ${index + 1}`}
-                        options={availableSeatMaps.map((item) => ({ value: item.id, label: item.label }))}
+                        options={availableSeatMaps.map((item) => ({ value: item.id, label: item.name }))}
                         onChange={(value) => updateShowtime(index, { seatMapId: value })}
                       />
                     </label>
@@ -366,7 +559,7 @@ export function AdminCreateEventPage({ asModal, onSuccess, onClose }: { asModal?
                 <button
                   className="secondary-button add-section-button"
                   type="button"
-                  onClick={() => setShowtimes((current) => [...current, defaultShowtimeRow()])}
+                  onClick={() => setShowtimes((current) => [...current, defaultShowtimeRow(availableSeatMaps)])}
                 >
                   <Plus size={18} strokeWidth={2.5} />
                   Add showtime
@@ -428,9 +621,29 @@ export function AdminCreateEventPage({ asModal, onSuccess, onClose }: { asModal?
             className="ticket-modal"
             style={{ gridTemplateColumns: '1fr', width: 'min(100%, 1200px)', padding: '24px', position: 'relative' }}
           >
-            <SeatMapDesignerPage asModal onClose={() => setIsCreatingSeatMap(false)} />
+            <SeatMapDesignerPage
+              asModal
+              onClose={() => setIsCreatingSeatMap(false)}
+              onSave={(savedMap) => {
+                refreshSeatMaps()
+                // Select the newly created map in the first showtime
+                if (savedMap) {
+                  setShowtimes((current) =>
+                    current.map((st, i) => (i === 0 ? { ...st, seatMapId: savedMap.id } : st)),
+                  )
+                }
+                setIsCreatingSeatMap(false)
+              }}
+            />
           </div>
         </div>
+      )}
+
+      {isMoviePickerOpen && (
+        <MoviePickerModal
+          onSelect={handleMovieSelected}
+          onClose={() => setIsMoviePickerOpen(false)}
+        />
       )}
     </section>
   )
