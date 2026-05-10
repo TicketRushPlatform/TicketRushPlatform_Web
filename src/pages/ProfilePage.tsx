@@ -1,4 +1,4 @@
-import { AlertCircle, ArrowRight, Bell, CheckCircle2, ChevronDown, LogOut, ShieldCheck, TicketCheck, UserRound } from 'lucide-react'
+import { AlertCircle, ArrowRight, Bell, CalendarDays, CheckCircle2, ChevronDown, LogOut, ShieldCheck, TicketCheck, UserRound } from 'lucide-react'
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
@@ -104,6 +104,17 @@ export function ProfilePage() {
             <span>Full name</span>
             <input value={fullName} onChange={(event) => setFullName(event.target.value)} />
           </label>
+          <div className="field">
+            <span>Assigned Roles</span>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', padding: '12px', border: '2px solid var(--soft-border)', borderRadius: 'var(--radius-md)', background: 'var(--muted)' }}>
+              <span className={`user-status-badge ${auth.user.role === 'ADMIN' ? 'active' : ''}`}>{auth.user.role} (Base)</span>
+              {(auth.user.assigned_roles ?? []).map((roleName) => (
+                <span className="user-status-badge" key={roleName} style={{ background: 'var(--tertiary)', color: '#000' }}>
+                  {roleName}
+                </span>
+              ))}
+            </div>
+          </div>
           <div className="profile-form-row">
             <label className="field">
               <span>Gender</span>
@@ -154,6 +165,12 @@ export function ProfilePage() {
             <Bell size={18} strokeWidth={2.5} />
             Notifications
           </Link>
+          {(auth.isAdmin || auth.hasPermission('EVENT_CREATE')) && (
+            <Link className="secondary-button" to="/?my_events=true">
+              <CalendarDays size={18} strokeWidth={2.5} />
+              My Events
+            </Link>
+          )}
           {auth.isAdmin && (
             <Link className="primary-button" to="/admin">
               Open Admin

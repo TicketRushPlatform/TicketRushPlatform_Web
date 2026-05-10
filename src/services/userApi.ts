@@ -90,6 +90,8 @@ export type User = {
   provider: string
   role: string
   status: string
+  assigned_roles?: string[]
+  permissions?: string[]
   created_at: string
   updated_at: string
 }
@@ -155,6 +157,24 @@ export type UploadMediaPayload = {
 
 export type UploadMediaResponse = {
   url: string
+}
+
+export type UserRoleAssignment = {
+  role_name: string
+  permissions: string[]
+  assigned_at: string
+  assigned_by: string | null
+}
+
+export type NotificationItem = {
+  id: string
+  user_id: string
+  title: string
+  message: string
+  tone: 'INFO' | 'SUCCESS' | 'WARNING'
+  read: boolean
+  link?: string
+  created_at: string
 }
 
 export async function register(payload: RegisterPayload): Promise<TokenPair> {
@@ -260,4 +280,69 @@ export async function uploadMyMedia(accessToken: string, payload: UploadMediaPay
   }
 
   return data as UploadMediaResponse
+}
+
+export type UserStats = {
+  total_users: number
+  active_users: number
+  blocked_users: number
+  admin_count: number
+}
+
+export async function getUserStats(accessToken: string): Promise<UserStats> {
+  return requestJson<UserStats>('/users/stats', { method: 'GET', accessToken })
+}
+
+// ---- Role Assignment APIs ----
+
+export async function listUserRoles(accessToken: string, userId: string): Promise<UserRoleAssignment[]> {
+  return requestJson<UserRoleAssignment[]>(`/users/${encodeURIComponent(userId)}/roles`, { method: 'GET', accessToken })
+}
+
+export async function assignUserRole(accessToken: string, userId: string, roleName: string): Promise<UserRoleAssignment> {
+  return requestJson<UserRoleAssignment>(`/users/${encodeURIComponent(userId)}/roles`, {
+    method: 'POST',
+    accessToken,
+    body: { role_name: roleName },
+  })
+}
+
+export async function removeUserRole(accessToken: string, userId: string, roleName: string): Promise<void> {
+  return requestJson<void>(`/users/${encodeURIComponent(userId)}/roles/${encodeURIComponent(roleName)}`, {
+    method: 'DELETE',
+    accessToken,
+  })
+}
+
+// ---- Notification APIs ----
+
+export async function listNotificationsApi(accessToken: string): Promise<NotificationItem[]> {
+  return requestJson<NotificationItem[]>('/notifications', { method: 'GET', accessToken })
+}
+
+export async function markNotificationReadApi(accessToken: string, notificationId: string): Promise<NotificationItem> {
+  return requestJson<NotificationItem>(`/notifications/${encodeURIComponent(notificationId)}/read`, {
+    method: 'PATCH',
+    accessToken,
+  })
+}
+
+export async function markAllNotificationsReadApi(accessToken: string): Promise<void> {
+  return requestJson<void>('/notifications/read-all', { method: 'PATCH', accessToken })
+}
+
+export async function getUnreadNotificationCount(accessToken: string): Promise<number> {
+  const response = await requestJson<{ count: number }>('/notifications/unread-count', { method: 'GET', accessToken })
+  return response.count
+}
+
+export async function deleteNotificationApi(accessToken: string, notificationId: string): Promise<void> {
+  return requestJson<void>(`/notifications/${encodeURIComponent(notificationId)}`, {
+    method: 'DELETE',
+    accessToken,
+  })
+}
+
+export async function deleteAllNotificationsApi(accessToken: string): Promise<void> {
+  return requestJson<void>('/notifications/all', { method: 'DELETE', accessToken })
 }

@@ -9,12 +9,14 @@ import {
   ImagePlus,
   Plus,
   Save,
+  Ticket,
   Trash2,
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { createEvent, getEvent, getShowtimesByEvent, updateEvent } from '../services/ticketRushApi'
 import type { EventCategory, TicketStatus } from '../types'
+import { SeatMapDesignerPage } from './SeatMapDesignerPage'
 
 const availableSeatMaps = [
   { id: 'concert-main', label: 'Concert Main Hall', venue: 'TicketRush Arena', address: 'District 1, Ho Chi Minh City' },
@@ -22,28 +24,9 @@ const availableSeatMaps = [
   { id: 'stadium-open', label: 'Open Stadium', venue: 'City Stadium', address: 'District 7, Ho Chi Minh City' },
 ]
 
-type AdminShowtimeRow = {
-  id?: string
-  date: string
-  time: string
-  seatMapId: string
-  queueEnabled: boolean
-  queueLimit: number
-  /** Preserves API start/end length when saving (ms). */
-  durationMs: number
-}
-
-const defaultShowtimeRow = (): AdminShowtimeRow => ({
-  date: '',
-  time: '',
-  seatMapId: availableSeatMaps[0].id,
-  queueEnabled: false,
-  queueLimit: 200,
-  durationMs: 120 * 60 * 1000,
-})
-
-export function AdminCreateEventPage() {
-  const { eventId } = useParams<{ eventId: string }>()
+export function AdminCreateEventPage({ asModal, onSuccess, onClose }: { asModal?: boolean; onSuccess?: (eventId: string) => void; onClose?: () => void }) {
+  const { eventId: paramEventId } = useParams<{ eventId: string }>()
+  const eventId = asModal ? undefined : paramEventId
   const isEditMode = Boolean(eventId)
   const [eventName, setEventName] = useState('')
   const [category, setCategory] = useState<EventCategory>('Music')
@@ -51,11 +34,14 @@ export function AdminCreateEventPage() {
   const [city, setCity] = useState('Ho Chi Minh City')
   const [description, setDescription] = useState('')
   const [posterPreviewUrl, setPosterPreviewUrl] = useState('')
-  const [eventDurationMinutes, setEventDurationMinutes] = useState(120)
-  const [showtimes, setShowtimes] = useState<AdminShowtimeRow[]>([defaultShowtimeRow()])
+  const [showtimes, setShowtimes] = useState<Array<{ date: string; time: string; seatMapId: string; queueEnabled: boolean; queueLimit: number }>>([
+    { date: '', time: '', seatMapId: availableSeatMaps[0].id, queueEnabled: false, queueLimit: 200 },
+  ])
+  const [maxTicketsPerBooking, setMaxTicketsPerBooking] = useState<string>('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isLoadingEvent, setIsLoadingEvent] = useState(false)
   const [notice, setNotice] = useState<{ tone: 'success' | 'error'; text: string } | null>(null)
+  const [isCreatingSeatMap, setIsCreatingSeatMap] = useState(false)
 
   function updateShowtime(index: number, patch: Partial<AdminShowtimeRow>) {
     setShowtimes((current) => current.map((item, itemIndex) => (itemIndex === index ? { ...item, ...patch } : item)))
@@ -93,9 +79,11 @@ export function AdminCreateEventPage() {
         setCity(event.city)
         setDescription(event.description)
         if (event.imageUrl) setPosterPreviewUrl(event.imageUrl)
-        const durationM =
-          event.kind === 'MOVIE' ? (event.movie?.durationMinutes ?? 120) : (event.durationMinutes ?? 120)
-        setEventDurationMinutes(durationM)
+        setMaxTicketsPerBooking(
+          (event as unknown as { maxTicketsPerBooking?: number | null }).maxTicketsPerBooking
+            ? String((event as unknown as { maxTicketsPerBooking?: number | null }).maxTicketsPerBooking)
+            : '',
+        )
         const mappedShowtimes = eventShowtimes
           .map((item) => {
             const start = new Date(item.startTime)
@@ -176,13 +164,16 @@ export function AdminCreateEventPage() {
             durationMs: showtime.durationMs,
           })),
         sections: [{ name: 'Default', rowCount: 10, seatsPerRow: 12, seatClass: 'STANDARD', price: 120000 }],
+        maxTicketsPerBooking: maxTicketsPerBooking.trim() ? Number(maxTicketsPerBooking.trim()) : null,
       }
       if (isEditMode && eventId) {
         await updateEvent(eventId, payload)
         setNotice({ tone: 'success', text: 'Event updated successfully.' })
+        if (onSuccess) onSuccess(eventId)
       } else {
-        await createEvent(payload)
+        const created = await createEvent(payload)
         setNotice({ tone: 'success', text: 'Event created successfully via backend API.' })
+        if (onSuccess) onSuccess(created.id)
       }
     } catch (error) {
       setNotice({ tone: 'error', text: error instanceof Error ? error.message : isEditMode ? 'Failed to update event via API.' : 'Failed to create event via API.' })
@@ -192,20 +183,22 @@ export function AdminCreateEventPage() {
   }
 
   return (
-    <section className="create-event-page" aria-labelledby="create-event-title">
-      <div className="admin-hero create-hero">
-        <div>
-          <p className="eyebrow">
-            <Plus size={18} strokeWidth={2.5} />
-            {isEditMode ? 'Edit event' : 'Create event'}
-          </p>
-          <h1 id="create-event-title">{isEditMode ? 'Refine event details and schedule.' : 'Build the next ticket drop.'}</h1>
+    <section className={asModal ? "modal-body-container" : "create-event-page"} aria-labelledby="create-event-title">
+      {!asModal && (
+        <div className="admin-hero create-hero">
+          <div>
+            <p className="eyebrow">
+              <Plus size={18} strokeWidth={2.5} />
+              {isEditMode ? 'Edit event' : 'Create event'}
+            </p>
+            <h1 id="create-event-title">{isEditMode ? 'Refine event details and schedule.' : 'Build the next ticket drop.'}</h1>
+          </div>
+          <Link className="secondary-button compact-link" to="/admin">
+            <ArrowLeft size={18} strokeWidth={2.5} />
+            Back to dashboard
+          </Link>
         </div>
-        <Link className="secondary-button compact-link" to="/admin">
-          <ArrowLeft size={18} strokeWidth={2.5} />
-          Back to dashboard
-        </Link>
-      </div>
+      )}
 
       <form className="create-event-layout" onSubmit={onSubmit}>
         {isLoadingEvent && <div className="auth-notice info"><p>Loading event details...</p></div>}
@@ -300,7 +293,16 @@ export function AdminCreateEventPage() {
                       </div>
                     </label>
                     <label className="field">
-                      <span>Seat map</span>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span>Seat map</span>
+                        <button 
+                          type="button" 
+                          onClick={() => setIsCreatingSeatMap(true)} 
+                          style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', padding: 0 }}
+                        >
+                          + NEW
+                        </button>
+                      </div>
                       <FilterSelect
                         value={showtime.seatMapId}
                         valueLabel={availableSeatMaps.find((item) => item.id === showtime.seatMapId)?.label ?? 'Select map'}
@@ -349,6 +351,24 @@ export function AdminCreateEventPage() {
                 </button>
               </div>
             </section>
+
+            <label className="field span-2">
+              <span>Max tickets per booking</span>
+              <div className="input-shell icon-field">
+                <Ticket size={20} strokeWidth={2.5} aria-hidden="true" />
+                <input
+                  type="number"
+                  min={1}
+                  max={100}
+                  value={maxTicketsPerBooking}
+                  onChange={(event) => setMaxTicketsPerBooking(event.target.value)}
+                  placeholder="Unlimited (leave empty for no limit)"
+                />
+              </div>
+              <small style={{ color: 'var(--muted-foreground)', marginTop: 4, display: 'block' }}>
+                Limits how many seats a customer can book per showtime. Leave empty for unlimited.
+              </small>
+            </label>
           </div>
         </section>
 
@@ -361,9 +381,16 @@ export function AdminCreateEventPage() {
               <p>{notice.text}</p>
             </div>
           )}
-          <button className="secondary-button" type="button">
-            Save draft
-          </button>
+          {asModal && (
+            <button className="secondary-button" type="button" onClick={onClose}>
+              Cancel
+            </button>
+          )}
+          {!asModal && (
+            <button className="secondary-button" type="button">
+              Save draft
+            </button>
+          )}
           <button className="primary-button compact-button" type="submit" disabled={isSubmitting}>
             {isSubmitting ? (isEditMode ? 'Saving...' : 'Publishing...') : isEditMode ? 'Save changes' : 'Publish event'}
             <span>
@@ -372,6 +399,17 @@ export function AdminCreateEventPage() {
           </button>
         </div>
       </form>
+      
+      {isCreatingSeatMap && (
+        <div className="modal-backdrop blurred" style={{ zIndex: 50 }}>
+          <div 
+            className="ticket-modal" 
+            style={{ gridTemplateColumns: '1fr', width: 'min(100%, 1200px)', padding: '24px', position: 'relative' }} 
+          >
+            <SeatMapDesignerPage asModal onClose={() => setIsCreatingSeatMap(false)} />
+          </div>
+        </div>
+      )}
     </section>
   )
 }
