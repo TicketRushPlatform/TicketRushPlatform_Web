@@ -583,6 +583,7 @@ async function seedCatalogFromBackend(): Promise<void> {
       movie: normalizeMovieMetadata(item),
       soundtracks: kind === 'MOVIE' ? [] : undefined,
       maxTicketsPerBooking: item.max_tickets_per_booking ?? null,
+      durationMinutes: item.duration_minutes,
     }
     events.push(event)
 
