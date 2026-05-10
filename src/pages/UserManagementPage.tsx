@@ -44,8 +44,8 @@ export function UserManagementPage() {
   const [formEmail, setFormEmail] = useState('')
   const [formPassword, setFormPassword] = useState('')
   const [availableRoles, setAvailableRoles] = useState<RolePermissionSet[]>([])
-  const [roleOptions, setRoleOptions] = useState<string[]>([])
-  const [formRole, setFormRole] = useState('PROFILE_OWNER')
+
+  const [formRole, setFormRole] = useState('USER')
   const [formStatus, setFormStatus] = useState<'ACTIVE' | 'BLOCKED'>('ACTIVE')
 
   // Role assignment state
@@ -85,9 +85,7 @@ export function UserManagementPage() {
         if (!cancelled) {
           setUsers(fetchedUsers)
           setAvailableRoles(fetchedRoles)
-          const roleNames = fetchedRoles.map((role) => role.name)
-          setRoleOptions(roleNames)
-          if (roleNames.length > 0) setFormRole(roleNames[0])
+
         }
       } catch (err) {
         if (!cancelled) {
@@ -107,7 +105,7 @@ export function UserManagementPage() {
     setFormName('')
     setFormEmail('')
     setFormPassword('')
-    setFormRole(roleOptions[0] ?? 'PROFILE_OWNER')
+    setFormRole('USER')
     setFormStatus('ACTIVE')
     setEditingUser(null)
     setModalMode('create')
@@ -117,7 +115,7 @@ export function UserManagementPage() {
     setFormName(user.full_name)
     setFormEmail(user.email ?? '')
     setFormPassword('')
-    setFormRole(user.role?.toUpperCase() ?? (roleOptions[0] ?? 'PROFILE_OWNER'))
+    setFormRole(user.role?.toUpperCase() ?? 'USER')
     setFormStatus((user.status?.toUpperCase() === 'BLOCKED' ? 'BLOCKED' : 'ACTIVE') as 'ACTIVE' | 'BLOCKED')
     setEditingUser(user)
     setModalMode('edit')
@@ -431,7 +429,10 @@ export function UserManagementPage() {
                   value={formRole}
                   valueLabel={formRole}
                   ariaLabel="Choose role"
-                  options={roleOptions.map((role) => ({ value: role, label: role }))}
+                  options={[
+                    { value: 'USER', label: 'USER' },
+                    { value: 'ADMIN', label: 'ADMIN' },
+                  ]}
                   onChange={(value) => setFormRole(value)}
                 />
               </label>
