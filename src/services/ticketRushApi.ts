@@ -71,6 +71,8 @@ type ShowtimeApiResponse = {
   start_time: string
   end_time: string
   seat_map_name: string
+  queue_enabled?: boolean
+  queue_limit?: number
 }
 
 export type EventListFilters = {
@@ -95,6 +97,7 @@ export type CreateEventPayload = {
   queueEnabled?: boolean
   queueLimit?: number
   showtimes?: Array<{
+    id?: string
     date: string
     time: string
     seatMapName: string
@@ -102,7 +105,11 @@ export type CreateEventPayload = {
     address: string
     queueEnabled?: boolean
     queueLimit?: number
+    /** If set, end_time = start + durationMs (preserves real slot length on edit). */
+    durationMs?: number
   }>
+  /** When updating an EVENT from admin, pass API duration so it is not replaced by section heuristics. */
+  durationMinutes?: number
   sections: SeatSectionInput[]
   cinemaName?: string
   screenName?: string
@@ -134,11 +141,14 @@ type CreateEventApiRequest = {
 }
 
 type ReplaceShowtimesApiRequest = Array<{
+  id?: string
   venue: string
   address: string
   start_time: string
   end_time: string
   seat_map_name: string
+  queue_enabled?: boolean
+  queue_limit?: number
 }>
 
 type SeatStatusResponse = {
@@ -194,6 +204,15 @@ type SeatStatusSocketMessage = {
 type ApiEnvelope<T> = {
   data: T
   message?: string
+}
+
+type QueueApiResponse = {
+  showtime_id: string
+  user_id: string
+  position: number
+  total_waiting: number
+  in_queue: boolean
+  can_enter: boolean
 }
 
 type BookingApiResponse = {
@@ -450,7 +469,7 @@ function normalizeRealtimeStatus(response: BookingSeatStatusResponse): RealtimeS
 }
 
 export function subscribeSeatsStatus(showtimeId: string, onStatus: (status: RealtimeSeatStatus) => void, onError?: () => void): () => void {
-  if (typeof WebSocket === 'undefined') return () => {}
+  if (typeof WebSocket === 'undefined') return () => { }
 
   let closed = false
   let reconnectTimer: number | undefined
@@ -564,6 +583,7 @@ async function seedCatalogFromBackend(): Promise<void> {
       movie: normalizeMovieMetadata(item),
       soundtracks: kind === 'MOVIE' ? [] : undefined,
       maxTicketsPerBooking: item.max_tickets_per_booking ?? null,
+      durationMinutes: item.duration_minutes,
     }
     events.push(event)
 
@@ -576,8 +596,8 @@ async function seedCatalogFromBackend(): Promise<void> {
         startTime: apiShowtime.start_time,
         endTime: apiShowtime.end_time,
         seatMapName: apiShowtime.seat_map_name,
-        queueEnabled: Boolean(item.is_flash_sale),
-        queueLimit: item.is_flash_sale ? 1000 : undefined,
+        queueEnabled: Boolean(apiShowtime.queue_enabled ?? item.is_flash_sale),
+        queueLimit: apiShowtime.queue_limit ?? (item.is_flash_sale ? 1000 : undefined),
         cinemaName: kind === 'MOVIE' ? apiShowtime.venue : undefined,
         screenName: kind === 'MOVIE' ? 'Screen 1' : undefined,
         format: kind === 'MOVIE' ? '2D' : undefined,
@@ -854,43 +874,46 @@ export async function listBookingsByUser(userId = DEFAULT_USER_ID): Promise<Book
 }
 
 export async function joinQueue(showtimeId: string): Promise<QueueSession> {
-  await ensureCatalogBootstrap()
-  await delay(180)
-  const state = getFreshState()
-  const existing = state.queues.find((queue) => queue.showtimeId === showtimeId && !queue.accessGranted)
-  if (existing) return existing
-
-  const session: QueueSession = {
-    token: createId('queue'),
-    showtimeId,
-    position: 90 + Math.floor(Math.random() * 80),
-    batchSize: 50,
-    accessGranted: false,
-    createdAt: new Date().toISOString(),
+  const response = await bookingApiRequest<QueueApiResponse>(`/showtimes/${encodeURIComponent(showtimeId)}/queue/join`, {
+    method: 'POST',
+  })
+  return {
+    showtimeId: response.showtime_id,
+    position: response.position,
+    totalWaiting: response.total_waiting,
+    inQueue: response.in_queue,
+    canEnter: response.can_enter,
   }
-
-  writeState({ ...state, queues: [session, ...state.queues] })
-  return session
 }
 
-export async function getQueueStatus(token: string): Promise<QueueSession | undefined> {
-  await ensureCatalogBootstrap()
-  await delay(120)
-  const state = getFreshState()
-  const queue = state.queues.find((item) => item.token === token)
-  if (!queue) return undefined
+export async function getQueueStatus(showtimeId: string): Promise<QueueSession> {
+  const response = await bookingApiRequest<QueueApiResponse>(`/showtimes/${encodeURIComponent(showtimeId)}/queue/status`)
+  return {
+    showtimeId: response.showtime_id,
+    position: response.position,
+    totalWaiting: response.total_waiting,
+    inQueue: response.in_queue,
+    canEnter: response.can_enter,
+  }
+}
 
-  const nextPosition = Math.max(0, queue.position - (9 + Math.floor(Math.random() * 18)))
-  const nextQueue: QueueSession =
-    nextPosition <= queue.batchSize
-      ? { ...queue, position: 0, accessGranted: true, accessToken: queue.accessToken ?? createId('access') }
-      : { ...queue, position: nextPosition }
-
-  writeState({
-    ...state,
-    queues: state.queues.map((item) => (item.token === token ? nextQueue : item)),
+export async function heartbeatQueue(showtimeId: string): Promise<QueueSession> {
+  const response = await bookingApiRequest<QueueApiResponse>(`/showtimes/${encodeURIComponent(showtimeId)}/queue/heartbeat`, {
+    method: 'POST',
   })
-  return nextQueue
+  return {
+    showtimeId: response.showtime_id,
+    position: response.position,
+    totalWaiting: response.total_waiting,
+    inQueue: response.in_queue,
+    canEnter: response.can_enter,
+  }
+}
+
+export async function leaveQueue(showtimeId: string): Promise<void> {
+  await bookingApiRequest(`/showtimes/${encodeURIComponent(showtimeId)}/queue/leave`, {
+    method: 'POST',
+  })
 }
 
 export async function createEvent(payload: CreateEventPayload): Promise<TicketRushEvent> {
@@ -921,13 +944,16 @@ export async function createEvent(payload: CreateEventPayload): Promise<TicketRu
   if (payload.showtimes?.length) {
     const showtimePayload: ReplaceShowtimesApiRequest = payload.showtimes.map((showtime, index) => {
       const start = new Date(`${showtime.date}T${showtime.time}:00`)
-      const end = new Date(start.getTime() + 120 * 60 * 1000)
+      const end = new Date(start.getTime() + (showtime.durationMs ?? 120 * 60 * 1000))
       return {
+        ...(showtime.id ? { id: showtime.id } : {}),
         venue: showtime.venue,
         address: showtime.address,
         start_time: start.toISOString(),
         end_time: end.toISOString(),
         seat_map_name: showtime.seatMapName || `Auto map ${index + 1}`,
+        queue_enabled: showtime.queueEnabled,
+        ...(showtime.queueEnabled ? { queue_limit: showtime.queueLimit } : {}),
       }
     })
     await putEventApiNoResponse(`/events/${encodeURIComponent(created.id)}/showtimes`, showtimePayload)
@@ -950,7 +976,8 @@ export async function updateEvent(eventId: string, payload: CreateEventPayload):
     duration_minutes:
       payload.kind === 'MOVIE'
         ? payload.movie?.durationMinutes ?? 120
-        : Math.max(60, Math.min(360, Math.round((payload.sections.length || 2) * 60))),
+        : payload.durationMinutes ??
+        Math.max(60, Math.min(360, Math.round((payload.sections.length || 2) * 60))),
     event_type: payload.kind,
     category: payload.kind === 'MOVIE' ? 'Cinema' : payload.category,
     venue: payload.venue,
@@ -971,13 +998,16 @@ export async function updateEvent(eventId: string, payload: CreateEventPayload):
   if (payload.showtimes?.length) {
     const showtimePayload: ReplaceShowtimesApiRequest = payload.showtimes.map((showtime, index) => {
       const start = new Date(`${showtime.date}T${showtime.time}:00`)
-      const end = new Date(start.getTime() + 120 * 60 * 1000)
+      const end = new Date(start.getTime() + (showtime.durationMs ?? 120 * 60 * 1000))
       return {
+        ...(showtime.id ? { id: showtime.id } : {}),
         venue: showtime.venue,
         address: showtime.address,
         start_time: start.toISOString(),
         end_time: end.toISOString(),
         seat_map_name: showtime.seatMapName || `Auto map ${index + 1}`,
+        queue_enabled: showtime.queueEnabled,
+        ...(showtime.queueEnabled ? { queue_limit: showtime.queueLimit } : {}),
       }
     })
     await putEventApiNoResponse(`/events/${encodeURIComponent(eventId)}/showtimes`, showtimePayload)
@@ -1077,7 +1107,7 @@ export async function getDashboardMetrics(): Promise<DashboardMetrics> {
     movieRevenue,
     customers: 19600 + paidBookings.length,
     fillRate: Math.round((soldSeats / totalSeats) * 100),
-    queueLoad: state.queues.filter((queue) => !queue.accessGranted).length * 50 + holdingSeats,
+    queueLoad: state.queues.filter((queue) => queue.inQueue).length * 50 + holdingSeats,
     availableSeats,
     holdingSeats,
     soldSeats,

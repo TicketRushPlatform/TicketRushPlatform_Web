@@ -62,6 +62,8 @@ export type TicketRushEvent = EventItem & {
   address: string
   organizer: string
   saleOpensAt: string
+  /** From API when catalog was seeded; used for admin edit to avoid overwriting duration. */
+  durationMinutes?: number
 }
 
 export type Showtime = {
@@ -125,13 +127,11 @@ export type Ticket = {
 }
 
 export type QueueSession = {
-  token: string
   showtimeId: string
   position: number
-  batchSize: number
-  accessGranted: boolean
-  accessToken?: string
-  createdAt: string
+  totalWaiting: number
+  inQueue: boolean
+  canEnter: boolean
 }
 
 export type NotificationItem = {

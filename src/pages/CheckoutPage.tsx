@@ -183,7 +183,7 @@ export function CheckoutPage() {
             <LoaderCircle className="spin" size={34} strokeWidth={2.5} />
           </div>
           <h1>Loading checkout</h1>
-          <p>TicketRush is checking your seat hold timer.</p>
+          <p>TicketRush is checking your booking window timer.</p>
         </div>
       </section>
     )
@@ -227,7 +227,7 @@ export function CheckoutPage() {
           <div className={expired ? 'checkout-timer expired' : 'checkout-timer'}>
             <Clock size={28} strokeWidth={2.5} />
             <div>
-              <span>Seat hold expires in</span>
+              <span>Time left in booking window (seat map + hold + pay)</span>
               <strong>
                 {minutes.toString().padStart(2, '0')}:{seconds.toString().padStart(2, '0')}
               </strong>
