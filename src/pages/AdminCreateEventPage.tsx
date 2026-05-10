@@ -43,7 +43,7 @@ export function AdminCreateEventPage({ asModal, onSuccess, onClose }: { asModal?
   const [notice, setNotice] = useState<{ tone: 'success' | 'error'; text: string } | null>(null)
   const [isCreatingSeatMap, setIsCreatingSeatMap] = useState(false)
 
-  function updateShowtime(index: number, patch: Partial<{ date: string; time: string; seatMapId: string; queueEnabled: boolean; queueLimit: number }>) {
+  function updateShowtime(index: number, patch: Partial<AdminShowtimeRow>) {
     setShowtimes((current) => current.map((item, itemIndex) => (itemIndex === index ? { ...item, ...patch } : item)))
   }
 
@@ -87,18 +87,24 @@ export function AdminCreateEventPage({ asModal, onSuccess, onClose }: { asModal?
         const mappedShowtimes = eventShowtimes
           .map((item) => {
             const start = new Date(item.startTime)
+            const end = new Date(item.endTime)
+            const durationMs = Number.isNaN(end.getTime()) || Number.isNaN(start.getTime())
+              ? 120 * 60 * 1000
+              : Math.max(60 * 1000, end.getTime() - start.getTime())
             const date = Number.isNaN(start.getTime()) ? '' : start.toISOString().slice(0, 10)
             const time = Number.isNaN(start.getTime()) ? '' : `${String(start.getHours()).padStart(2, '0')}:${String(start.getMinutes()).padStart(2, '0')}`
             return {
+              id: item.id,
               date,
               time,
               seatMapId: availableSeatMaps.find((seatMap) => seatMap.label === item.seatMapName)?.id ?? availableSeatMaps[0].id,
               queueEnabled: Boolean(item.queueEnabled),
               queueLimit: item.queueLimit ?? 200,
+              durationMs,
             }
           })
           .filter((item) => item.date && item.time)
-        setShowtimes(mappedShowtimes.length ? mappedShowtimes : [{ date: '', time: '', seatMapId: availableSeatMaps[0].id, queueEnabled: false, queueLimit: 200 }])
+        setShowtimes(mappedShowtimes.length ? mappedShowtimes : [defaultShowtimeRow()])
       } catch (error) {
         if (!isCancelled) {
           setNotice({ tone: 'error', text: error instanceof Error ? error.message : 'Could not load event to edit.' })
@@ -120,13 +126,16 @@ export function AdminCreateEventPage({ asModal, onSuccess, onClose }: { asModal?
       setNotice({ tone: 'error', text: 'Please complete at least one showtime with date and time.' })
       return
     }
-    if (showtimes.some((item) => item.queueEnabled && (item.queueLimit < 50 || item.queueLimit > 10000))) {
-      setNotice({ tone: 'error', text: 'Queue limit per showtime must be between 50 and 10000.' })
+    if (showtimes.some((item) => item.queueEnabled && (item.queueLimit <= 0 || item.queueLimit > 10000))) {
+      setNotice({ tone: 'error', text: 'Queue limit per showtime must be greater than 0 and up to 10000.' })
       return
     }
     setIsSubmitting(true)
     setNotice(null)
     try {
+      const posterForApi =
+        posterPreviewUrl.startsWith('blob:') ? undefined : posterPreviewUrl.trim() || undefined
+
       const payload: Parameters<typeof createEvent>[0] = {
         kind: 'EVENT',
         name: eventName.trim(),
@@ -138,11 +147,13 @@ export function AdminCreateEventPage({ asModal, onSuccess, onClose }: { asModal?
         city: city.trim(),
         address: availableSeatMaps.find((item) => item.id === primaryShowtime.seatMapId)?.address ?? city.trim(),
         description: description.trim(),
-        imageUrl: undefined,
+        imageUrl: posterForApi,
         isFlashSale: status === 'Flash Sale',
+        ...(isEditMode ? { durationMinutes: eventDurationMinutes } : {}),
         showtimes: showtimes
           .filter((showtime) => showtime.date && showtime.time)
           .map((showtime) => ({
+            ...(showtime.id ? { id: showtime.id } : {}),
             date: showtime.date,
             time: showtime.time,
             seatMapName: availableSeatMaps.find((item) => item.id === showtime.seatMapId)?.label ?? 'Auto map',
@@ -150,6 +161,7 @@ export function AdminCreateEventPage({ asModal, onSuccess, onClose }: { asModal?
             address: availableSeatMaps.find((item) => item.id === showtime.seatMapId)?.address ?? city.trim(),
             queueEnabled: showtime.queueEnabled,
             queueLimit: showtime.queueEnabled ? showtime.queueLimit : undefined,
+            durationMs: showtime.durationMs,
           })),
         sections: [{ name: 'Default', rowCount: 10, seatsPerRow: 12, seatClass: 'STANDARD', price: 120000 }],
         maxTicketsPerBooking: maxTicketsPerBooking.trim() ? Number(maxTicketsPerBooking.trim()) : null,
@@ -312,11 +324,10 @@ export function AdminCreateEventPage({ asModal, onSuccess, onClose }: { asModal?
                       <input
                         className="queue-limit-input"
                         type="number"
-                        min={50}
                         max={10000}
                         value={showtime.queueLimit}
                         disabled={!showtime.queueEnabled}
-                        onChange={(event) => updateShowtime(index, { queueLimit: Number(event.target.value) || 50 })}
+                        onChange={(event) => updateShowtime(index, { queueLimit: Number(event.target.value) || 1 })}
                       />
                     </div>
                     <button
@@ -333,7 +344,7 @@ export function AdminCreateEventPage({ asModal, onSuccess, onClose }: { asModal?
                 <button
                   className="secondary-button add-section-button"
                   type="button"
-                  onClick={() => setShowtimes((current) => [...current, { date: '', time: '', seatMapId: availableSeatMaps[0].id, queueEnabled: false, queueLimit: 200 }])}
+                  onClick={() => setShowtimes((current) => [...current, defaultShowtimeRow()])}
                 >
                   <Plus size={18} strokeWidth={2.5} />
                   Add showtime
