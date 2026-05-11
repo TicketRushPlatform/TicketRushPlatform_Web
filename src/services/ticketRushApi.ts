@@ -62,6 +62,8 @@ type EventApiResponse = {
   release_date?: string | null
   language?: string | null
   max_tickets_per_booking?: number | null
+  created_at?: string
+  updated_at?: string
 }
 
 type ShowtimeApiResponse = {
@@ -247,6 +249,14 @@ type BookingDetail = {
   tickets: Ticket[]
 }
 
+export type EventPageResult = {
+  events: EventItem[]
+  page: number
+  pageSize: number
+  totalItems: number
+  totalPages: number
+}
+
 function buildTicketsFromBooking(booking: BookingApiResponse, event: TicketRushEvent, status: Booking['status']): Ticket[] {
   if (status !== 'PAID') return []
   return booking.items.map((item, index) => {
@@ -271,15 +281,12 @@ function buildTicketsFromBooking(booking: BookingApiResponse, event: TicketRushE
 }
 
 async function mapBookingApiToDetail(bookingResponse: BookingApiResponse, userId = DEFAULT_USER_ID): Promise<BookingDetail | undefined> {
-  const showtime = await getShowtime(bookingResponse.showtime_id)
+  const showtime = await getShowtimeFromBackend(bookingResponse.showtime_id)
   if (!showtime) return undefined
-  const event = await getEvent(showtime.eventId)
+  const event = await getEventFromBackend(showtime.eventId, showtime)
   if (!event) return undefined
-  const seatsStatus = await getSeatsStatus(bookingResponse.showtime_id)
   const seats = bookingResponse.items
     .map((item) => {
-      const seat = seatsStatus.seats.find((statusSeat) => statusSeat.id === item.seat_id)
-      if (seat) return seat
       return {
         id: item.seat_id,
         showtimeId: bookingResponse.showtime_id,
@@ -350,6 +357,107 @@ async function fetchEventApi<T>(path: string): Promise<T> {
   if (!response.ok) throw new Error('Unable to fetch event catalog from backend.')
   const payload = (await response.json()) as { data: T }
   return payload.data
+}
+
+async function fetchEventPageApi(path: string): Promise<{
+  data: EventApiResponse[]
+  page: number
+  page_size: number
+  total_items: number
+  total_pages: number
+}> {
+  const token = loadTokens()?.access_token
+  const response = await fetch(`${config.api.eventBaseUrl}${path.startsWith('/') ? path : `/${path}`}`, {
+    headers: {
+      accept: 'application/json',
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+    },
+  })
+  if (!response.ok) throw new Error('Unable to fetch event catalog from backend.')
+  return response.json()
+}
+
+function showtimeToDisplayParts(showtime?: Showtime, fallbackIso?: string | null) {
+  const source = showtime?.startTime ?? fallbackIso ?? new Date().toISOString()
+  const start = new Date(source)
+  const validStart = Number.isNaN(start.getTime()) ? new Date() : start
+  return {
+    date: validStart.toISOString().slice(0, 10),
+    time: `${String(validStart.getHours()).padStart(2, '0')}:${String(validStart.getMinutes()).padStart(2, '0')}`,
+  }
+}
+
+function normalizeShowtime(apiShowtime: ShowtimeApiResponse, kind?: EventKind): Showtime {
+  return {
+    id: apiShowtime.id,
+    eventId: apiShowtime.event_id,
+    venue: apiShowtime.venue,
+    address: apiShowtime.address,
+    startTime: apiShowtime.start_time,
+    endTime: apiShowtime.end_time,
+    seatMapName: apiShowtime.seat_map_name,
+    queueEnabled: Boolean(apiShowtime.queue_enabled),
+    queueLimit: apiShowtime.queue_limit,
+    cinemaName: kind === 'MOVIE' ? apiShowtime.venue : undefined,
+    screenName: kind === 'MOVIE' ? 'Screen 1' : undefined,
+    format: kind === 'MOVIE' ? '2D' : undefined,
+  }
+}
+
+function normalizeEvent(item: EventApiResponse, primaryShowtime?: Showtime): TicketRushEvent {
+  const kind = item.event_type
+  const savedMaps = loadSavedSeatMaps()
+  const primaryMatchedMap = primaryShowtime ? savedMaps.find((m) => m.name === primaryShowtime.seatMapName) : undefined
+  const sections = primaryMatchedMap?.sections?.length ? primaryMatchedMap.sections : buildFallbackSections(kind)
+  const { date, time } = showtimeToDisplayParts(primaryShowtime, item.release_date ?? item.sale_opens_at ?? item.created_at)
+
+  return {
+    id: item.id,
+    creatorId: item.creator_id ?? '',
+    kind,
+    showtimeId: primaryShowtime?.id ?? '',
+    name: item.name,
+    category: (kind === 'MOVIE' ? 'Cinema' : (item.category as EventCategory | undefined)) ?? 'Festival',
+    date,
+    time,
+    venue: item.venue ?? primaryShowtime?.venue ?? 'Venue TBA',
+    city: item.city ?? 'Ho Chi Minh City',
+    address: item.address ?? primaryShowtime?.address ?? '',
+    organizer: item.organizer ?? (kind === 'MOVIE' ? 'TicketRush Cinema' : 'TicketRush'),
+    priceFrom: sections[0].price,
+    imageUrl:
+      item.image_url ??
+      'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&w=1000&q=80',
+    status: (item.status as TicketStatus | undefined) ?? (item.is_flash_sale ? 'Flash Sale' : 'Available'),
+    capacity: sections.reduce((sum, section) => sum + section.rowCount * section.seatsPerRow, 0),
+    sold: 0,
+    tags: [kind === 'MOVIE' ? 'movie' : 'event', (item.category ?? 'live').toLowerCase()],
+    description: item.description || 'No description provided.',
+    saleOpensAt: item.sale_opens_at ?? new Date().toISOString(),
+    isFlashSale: Boolean(item.is_flash_sale),
+    movie: normalizeMovieMetadata(item),
+    soundtracks: kind === 'MOVIE' ? [] : undefined,
+    maxTicketsPerBooking: item.max_tickets_per_booking ?? null,
+    durationMinutes: item.duration_minutes,
+  }
+}
+
+async function getShowtimeFromBackend(showtimeId: string): Promise<Showtime | undefined> {
+  try {
+    const apiShowtime = await fetchEventApi<ShowtimeApiResponse>(`/showtimes/${encodeURIComponent(showtimeId)}`)
+    return normalizeShowtime(apiShowtime)
+  } catch {
+    return undefined
+  }
+}
+
+async function getEventFromBackend(eventId: string, primaryShowtime?: Showtime): Promise<TicketRushEvent | undefined> {
+  try {
+    const apiEvent = await fetchEventApi<EventApiResponse>(`/events/${encodeURIComponent(eventId)}`)
+    return normalizeEvent(apiEvent, primaryShowtime)
+  } catch {
+    return undefined
+  }
 }
 
 async function postEventApi<T>(path: string, body: unknown): Promise<T> {
@@ -496,7 +604,7 @@ export function subscribeSeatsStatus(showtimeId: string, onStatus: (status: Real
             expiresAt: seat.expiresAt,
           }))
           let { total, available, holding, sold } = normalized
-        
+
           if (seats.length === 0) {
             const state = getFreshState()
             const localSeats = state.seats.filter((seat) => seat.showtimeId === showtimeId)
@@ -519,7 +627,7 @@ export function subscribeSeatsStatus(showtimeId: string, onStatus: (status: Real
               sold = counts.sold
             }
           }
-        
+
           onStatus({
             showtimeId: normalized.showtimeId,
             seats: seats.sort((first, second) => first.row.localeCompare(second.row) || first.number - second.number),
@@ -802,6 +910,43 @@ export async function listEvents(filters: EventListFilters = {}): Promise<EventI
   })
 }
 
+export async function listEventPage({
+  page = 1,
+  pageSize = 6,
+  query,
+  kind,
+}: {
+  page?: number
+  pageSize?: number
+  query?: string
+  kind?: EventKind | 'ALL'
+} = {}): Promise<EventPageResult> {
+  const params = new URLSearchParams({
+    page: String(page),
+    page_size: String(pageSize),
+  })
+  const normalizedQuery = query?.trim()
+  if (normalizedQuery) params.set('search', normalizedQuery)
+  if (kind && kind !== 'ALL') params.set('type', kind)
+
+  const payload = await fetchEventPageApi(`/events?${params.toString()}`)
+  const events = await Promise.all(
+    payload.data.map(async (item) => {
+      const apiShowtimes = await fetchEventApi<ShowtimeApiResponse[]>(`/events/${encodeURIComponent(item.id)}/showtimes`).catch(() => [])
+      const primaryShowtime = apiShowtimes[0] ? normalizeShowtime(apiShowtimes[0], item.event_type) : undefined
+      return toEventItem(normalizeEvent(item, primaryShowtime))
+    }),
+  )
+
+  return {
+    events,
+    page: payload.page,
+    pageSize: payload.page_size,
+    totalItems: payload.total_items,
+    totalPages: payload.total_pages,
+  }
+}
+
 export async function getEvent(eventId: string): Promise<TicketRushEvent | undefined> {
   await ensureCatalogBootstrap()
   await delay()
@@ -918,7 +1063,6 @@ export async function confirmBooking(bookingId: string): Promise<BookingDetail> 
 }
 
 export async function listTickets(userId = DEFAULT_USER_ID): Promise<BookingDetail[]> {
-  await ensureCatalogBootstrap()
   const token = loadTokens()?.access_token
   const response = await fetch(`${config.api.bookingBaseUrl}/bookings/user/${encodeURIComponent(userId)}?page=1&page_size=50`, {
     headers: {
@@ -934,7 +1078,6 @@ export async function listTickets(userId = DEFAULT_USER_ID): Promise<BookingDeta
 }
 
 export async function listBookingsByUser(userId = DEFAULT_USER_ID): Promise<BookingDetail[]> {
-  await ensureCatalogBootstrap()
   const token = loadTokens()?.access_token
   const response = await fetch(`${config.api.bookingBaseUrl}/bookings/user/${encodeURIComponent(userId)}?page=1&page_size=50`, {
     headers: {

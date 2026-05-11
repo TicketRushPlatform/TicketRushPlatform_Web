@@ -1,17 +1,21 @@
 import { AlertCircle, ArrowLeft, CheckCircle2, Clock, CreditCard, LoaderCircle, LockKeyhole } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { Link, useBeforeUnload, useLocation, useNavigate, useParams } from 'react-router-dom'
+import { useAuth } from '../auth/AuthContext'
 import { cancelBooking, confirmBooking, formatCurrency, getBookingDetail } from '../services/ticketRushApi'
-import type { Booking, Seat, Showtime, TicketRushEvent } from '../types'
+import { sendBookingConfirmationEmailApi } from '../services/userApi'
+import type { Booking, Seat, Showtime, Ticket, TicketRushEvent } from '../types'
 
 type CheckoutDetail = {
   booking: Booking
   event: TicketRushEvent
   showtime: Showtime
   seats: Seat[]
+  tickets?: Ticket[]
 }
 
 export function CheckoutPage() {
+  const auth = useAuth()
   const { bookingId } = useParams()
   const navigate = useNavigate()
   const location = useLocation()
@@ -165,7 +169,44 @@ export function CheckoutPage() {
     setIsConfirming(true)
     setError(null)
     try {
-      await confirmBooking(bookingId)
+      const confirmedDetail = await confirmBooking(bookingId)
+      if (auth.tokens?.access_token) {
+        try {
+          await sendBookingConfirmationEmailApi(auth.tokens.access_token, {
+            booking: {
+              id: confirmedDetail.booking.id,
+              total_amount: formatCurrency(confirmedDetail.booking.totalAmount),
+              status: confirmedDetail.booking.status,
+            },
+            event: {
+              id: confirmedDetail.event.id,
+              name: confirmedDetail.event.name,
+              date: confirmedDetail.event.date,
+              image_url: confirmedDetail.event.imageUrl,
+            },
+            showtime: {
+              id: confirmedDetail.showtime.id,
+              date: new Date(confirmedDetail.showtime.startTime).toLocaleDateString(),
+              time: new Date(confirmedDetail.showtime.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              venue: confirmedDetail.showtime.venue,
+              address: confirmedDetail.showtime.address,
+            },
+            seats: confirmedDetail.seats.map((seat) => ({
+              id: seat.id,
+              label: `${seat.row}${seat.number}`,
+              price: formatCurrency(seat.price),
+            })),
+            tickets: confirmedDetail.tickets.map((ticket) => ({
+              id: ticket.id,
+              ticket_code: ticket.ticketCode,
+              qr_payload: ticket.qrPayload,
+              seat_id: ticket.seatId,
+            })),
+          })
+        } catch (mailError) {
+          console.warn('Booking was confirmed but confirmation email could not be sent.', mailError)
+        }
+      }
       autoCancelOnLeaveRef.current = false
       navigate('/tickets')
     } catch (err) {
@@ -320,4 +361,3 @@ export function CheckoutPage() {
     </section>
   )
 }
-

@@ -18,11 +18,11 @@ import {
   Sparkles,
   Ticket,
 } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
-import { formatCurrency, formatDate, listEvents } from '../services/ticketRushApi'
+import { formatCurrency, formatDate, listEventPage } from '../services/ticketRushApi'
 import type { EventItem } from '../types'
 import { CreateEventModal } from './CreateEventModal'
 
@@ -41,6 +41,8 @@ export function DiscoveryPage() {
   const filterByMyEvents = searchParams.get('my_events') === 'true'
   const canCreateEvent = auth.hasPermission('EVENT_CREATE')
   const [events, setEvents] = useState<EventItem[]>([])
+  const [totalEvents, setTotalEvents] = useState(0)
+  const [totalPages, setTotalPages] = useState(1)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -52,9 +54,26 @@ export function DiscoveryPage() {
   const [featuredIndex, setFeaturedIndex] = useState(0)
   const [isFeaturedSwitching, setIsFeaturedSwitching] = useState(false)
 
+  const loadEvents = useCallback(async () => {
+    setIsLoading(true)
+    setError(null)
+
+    try {
+      const payload = await listEventPage({ page, pageSize, query })
+      setEvents(payload.events)
+      setTotalEvents(payload.totalItems)
+      setTotalPages(Math.max(1, payload.totalPages))
+    } catch {
+      setError('We could not load events right now. Please try again.')
+    } finally {
+      setIsLoading(false)
+    }
+  }, [page, query])
+
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadEvents()
-  }, [])
+  }, [loadEvents])
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -82,20 +101,6 @@ export function DiscoveryPage() {
       }
     }
   }, [events.length])
-
-  async function loadEvents() {
-    setIsLoading(true)
-    setError(null)
-
-    try {
-      const eventList = await listEvents()
-      setEvents(eventList)
-    } catch {
-      setError('We could not load events right now. Please try again.')
-    } finally {
-      setIsLoading(false)
-    }
-  }
 
   const filteredEvents = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase()
@@ -141,8 +146,7 @@ export function DiscoveryPage() {
     [events],
   )
 
-  const totalPages = Math.max(1, Math.ceil(filteredEvents.length / pageSize))
-  const visibleEvents = filteredEvents.slice((page - 1) * pageSize, page * pageSize)
+  const visibleEvents = filteredEvents
   const hasFilters = Boolean(query || category || date || sort !== 'date-asc')
   const featuredEvent = events[featuredIndex]
 
@@ -187,6 +191,7 @@ export function DiscoveryPage() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
             <p>
               {filteredEvents.length} {filteredEvents.length === 1 ? 'event' : 'events'} found
+              {totalEvents > filteredEvents.length ? ` of ${totalEvents}` : ''}
             </p>
             {canCreateEvent && (
               <button className="primary-button compact-button" type="button" onClick={() => setIsModalOpen(true)} style={{ whiteSpace: 'nowrap' }}>

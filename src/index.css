@@ -4288,6 +4288,13 @@ textarea:focus {
   height: 72px;
 }
 
+.form-error {
+  color: #b91c1c;
+  font-size: 0.9rem;
+  font-weight: 700;
+  margin: 10px 0 0;
+}
+
 /* Admin sidebar layout */
 .admin-sidebar-layout {
   display: grid;

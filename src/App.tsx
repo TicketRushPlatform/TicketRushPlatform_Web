@@ -16,6 +16,7 @@ import { MyTicketsPage } from './pages/MyTicketsPage'
 import { NotificationsPage } from './pages/NotificationsPage'
 import { ProfilePage } from './pages/ProfilePage'
 import { PermissionManagementPage } from './pages/PermissionManagementPage'
+import { ResetPasswordPage } from './pages/ResetPasswordPage'
 import { SeatMapDesignerPage } from './pages/SeatMapDesignerPage'
 import { SeatSelectionPage } from './pages/SeatSelectionPage'
 import { SoundSearchPage } from './pages/SoundSearchPage'
@@ -118,6 +119,7 @@ function App() {
         <Route path="/login" element={<AuthPage initialMode="login" />} />
         <Route path="/register" element={<AuthPage initialMode="register" />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
       </Routes>
     </main>
   )

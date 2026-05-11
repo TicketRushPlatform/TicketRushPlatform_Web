@@ -107,6 +107,15 @@ export type LoginPayload = {
   password: string
 }
 
+export type ForgotPasswordPayload = {
+  email: string
+}
+
+export type ResetPasswordPayload = {
+  token: string
+  password: string
+}
+
 export type RefreshPayload = {
   refresh_token: string
 }
@@ -177,6 +186,14 @@ export type NotificationItem = {
   created_at: string
 }
 
+export type BookingConfirmationEmailPayload = {
+  booking: Record<string, unknown>
+  event: Record<string, unknown>
+  showtime: Record<string, unknown>
+  seats: Array<Record<string, unknown>>
+  tickets: Array<Record<string, unknown>>
+}
+
 export async function register(payload: RegisterPayload): Promise<TokenPair> {
   return requestJson<TokenPair>('/auth/register', { method: 'POST', body: payload })
 }
@@ -191,6 +208,14 @@ export async function refresh(payload: RefreshPayload): Promise<TokenPair> {
 
 export async function logout(payload: RefreshPayload): Promise<void> {
   return requestJson<void>('/auth/logout', { method: 'POST', body: payload })
+}
+
+export async function forgotPassword(payload: ForgotPasswordPayload): Promise<{ message: string }> {
+  return requestJson<{ message: string }>('/auth/forgot-password', { method: 'POST', body: payload })
+}
+
+export async function resetPassword(payload: ResetPasswordPayload): Promise<{ message: string }> {
+  return requestJson<{ message: string }>('/auth/reset-password', { method: 'POST', body: payload })
 }
 
 export async function oauthGoogle(payload: OAuthPayload): Promise<TokenPair> {
@@ -345,4 +370,15 @@ export async function deleteNotificationApi(accessToken: string, notificationId:
 
 export async function deleteAllNotificationsApi(accessToken: string): Promise<void> {
   return requestJson<void>('/notifications/all', { method: 'DELETE', accessToken })
+}
+
+export async function sendBookingConfirmationEmailApi(
+  accessToken: string,
+  payload: BookingConfirmationEmailPayload,
+): Promise<{ message: string }> {
+  return requestJson<{ message: string }>('/notifications/booking-confirmation-email', {
+    method: 'POST',
+    accessToken,
+    body: payload,
+  })
 }
