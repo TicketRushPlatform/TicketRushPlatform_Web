@@ -71,7 +71,7 @@ export function SeatSelectionPage() {
       if (currentShowtime.queueEnabled) {
         if (!auth.isAuthenticated) {
           setIsLoading(false)
-          navigate(`/login?next=${encodeURIComponent(`/showtimes/${showtimeId}/seats`)}`, { replace: true })
+          navigate(`/login?next=${encodeURIComponent(`/showtimes/${showtimeId}/seats`)}&reason=booking`, { replace: true })
           return
         }
         try {
@@ -234,7 +234,7 @@ export function SeatSelectionPage() {
   async function onHoldSeats() {
     if (!showtimeId || selectedSeatIds.length === 0) return
     if (!auth.isAuthenticated) {
-      navigate(`/login?next=${encodeURIComponent(`/showtimes/${showtimeId}/seats`)}`)
+      navigate(`/login?next=${encodeURIComponent(`/showtimes/${showtimeId}/seats`)}&reason=booking`)
       return
     }
     setIsHolding(true)

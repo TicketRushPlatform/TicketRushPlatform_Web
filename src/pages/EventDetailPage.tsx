@@ -19,6 +19,13 @@ import { useAuth } from '../auth/AuthContext'
 import { formatCurrency, formatDate, getEvent, getSeatsStatus, getShowtimesByEvent } from '../services/ticketRushApi'
 import type { Showtime, TicketRushEvent } from '../types'
 
+type ShowtimeSeatStats = {
+  available: number
+  total: number
+  holding: number
+  sold: number
+}
+
 export function EventDetailPage() {
   const { eventId } = useParams()
   const navigate = useNavigate()
@@ -26,7 +33,7 @@ export function EventDetailPage() {
   const canEditAll = auth.hasPermission('EVENT_MANAGE_ALL')
   const [event, setEvent] = useState<TicketRushEvent | null>(null)
   const [showtimes, setShowtimes] = useState<Showtime[]>([])
-  const [showtimeStats, setShowtimeStats] = useState<Record<string, { available: number; total: number }>>({})
+  const [showtimeStats, setShowtimeStats] = useState<Record<string, ShowtimeSeatStats>>({})
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
@@ -52,11 +59,15 @@ export function EventDetailPage() {
       if (!showtimes.length) return
       const pairs = await Promise.all(
         showtimes.map(async (showtime) => {
-          const status = await getSeatsStatus(showtime.id)
-          return [showtime.id, { available: status.available, total: status.total }] as const
+          try {
+            const status = await getSeatsStatus(showtime.id)
+            return [showtime.id, { available: status.available, total: status.total, holding: status.holding, sold: status.sold }] as const
+          } catch {
+            return undefined
+          }
         }),
       )
-      if (!cancelled) setShowtimeStats(Object.fromEntries(pairs))
+      if (!cancelled) setShowtimeStats(Object.fromEntries(pairs.filter((pair): pair is NonNullable<typeof pair> => Boolean(pair))))
     })()
     return () => {
       cancelled = true
@@ -92,7 +103,19 @@ export function EventDetailPage() {
     )
   }
 
-  const soldPercent = Math.round((event.sold / event.capacity) * 100)
+  const loadedStats = Object.values(showtimeStats)
+  const bannerCapacity = loadedStats.length > 0 ? loadedStats.reduce((sum, stats) => sum + stats.total, 0) : event.capacity
+  const bannerUnavailable = loadedStats.length > 0 ? loadedStats.reduce((sum, stats) => sum + stats.sold + stats.holding, 0) : event.sold
+  const soldPercent = bannerCapacity > 0 ? Math.round((bannerUnavailable / bannerCapacity) * 100) : 0
+
+  function openBooking(showtime: Showtime) {
+    const nextPath = showtime.queueEnabled ? `/queue/${showtime.id}` : `/showtimes/${showtime.id}/seats`
+    if (!auth.isAuthenticated) {
+      navigate(`/login?next=${encodeURIComponent(nextPath)}&reason=booking`)
+      return
+    }
+    navigate(nextPath)
+  }
 
   return (
     <section className="event-detail-page" aria-labelledby="event-detail-title">
@@ -142,7 +165,7 @@ export function EventDetailPage() {
               <span style={{ width: `${soldPercent}%` }} />
             </div>
             <p>
-              {event.sold}/{event.capacity} seats are currently sold or locked.
+              {bannerUnavailable}/{bannerCapacity} seats are currently sold or locked.
             </p>
           </div>
         </div>
@@ -237,7 +260,7 @@ export function EventDetailPage() {
               <button
                 className="primary-button compact-button"
                 type="button"
-                onClick={() => navigate(showtime.queueEnabled ? `/queue/${showtime.id}` : `/showtimes/${showtime.id}/seats`)}
+                onClick={() => openBooking(showtime)}
               >
                 Book Seats
                 <span>
