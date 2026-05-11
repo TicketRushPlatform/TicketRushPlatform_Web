@@ -40,8 +40,15 @@ export function AuthPage({ initialMode = 'login' }: { initialMode?: AuthMode }) 
   const [isOAuthProcessing, setIsOAuthProcessing] = useState(false)
 
   useEffect(() => {
-    if (!auth.isLoading && auth.isAuthenticated) navigate('/profile', { replace: true })
-  }, [auth.isAuthenticated, auth.isLoading, navigate])
+    if (!auth.isLoading && auth.isAuthenticated) navigate(getSafeNextPath(location.search) ?? '/profile', { replace: true })
+  }, [auth.isAuthenticated, auth.isLoading, location.search, navigate])
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search)
+    if (params.get('reason') === 'booking') {
+      setNotice({ tone: 'info', message: 'Please sign in before booking tickets.' })
+    }
+  }, [location.search])
 
   useEffect(() => {
     const provider = getOAuthProviderFromPath(location.pathname)
@@ -125,7 +132,7 @@ export function AuthPage({ initialMode = 'login' }: { initialMode?: AuthMode }) 
       } else {
         await auth.signUp({ email, password, full_name: fullName }, rememberMe)
       }
-      navigate('/', { replace: true })
+      navigate(getSafeNextPath(location.search) ?? '/', { replace: true })
     } catch (error) {
       if (error instanceof ApiError) {
         setNotice({ tone: 'error', message: error.body?.message ?? error.message })
@@ -399,4 +406,10 @@ function generateClientState() {
     return crypto.randomUUID()
   }
   return `state-${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
+
+function getSafeNextPath(search: string): string | null {
+  const next = new URLSearchParams(search).get('next')
+  if (!next || !next.startsWith('/') || next.startsWith('//')) return null
+  return next
 }

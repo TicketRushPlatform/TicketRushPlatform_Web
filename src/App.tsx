@@ -134,7 +134,9 @@ function RequireAuth({ children }: { children: ReactNode }) {
   }
 
   if (!auth.isAuthenticated) {
-    return <Navigate to={`/login?next=${encodeURIComponent(`${location.pathname}${location.search}`)}`} replace />
+    const next = encodeURIComponent(`${location.pathname}${location.search}`)
+    const reason = location.pathname.startsWith('/queue') || location.pathname.startsWith('/checkout') ? '&reason=booking' : ''
+    return <Navigate to={`/login?next=${next}${reason}`} replace />
   }
 
   return children
