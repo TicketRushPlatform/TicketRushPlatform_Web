@@ -10,19 +10,26 @@ import {
 } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
+import { forgotPassword } from '../services/userApi'
 
 export function ForgotPasswordPage() {
   const [email, setEmail] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isSent, setIsSent] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setIsSubmitting(true)
-    // Mock: simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 1200))
-    setIsSent(true)
-    setIsSubmitting(false)
+    setError(null)
+    try {
+      await forgotPassword({ email })
+      setIsSent(true)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not send reset email.')
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   return (
@@ -99,6 +106,8 @@ export function ForgotPasswordPage() {
                 <ArrowRight size={18} strokeWidth={2.5} />
               </span>
             </button>
+
+            {error && <p className="form-error">{error}</p>}
 
             <Link className="secondary-button compact-button" to="/login" style={{ marginTop: 8, justifyContent: 'center', width: '100%' }}>
               <ArrowLeft size={18} strokeWidth={2.5} />
