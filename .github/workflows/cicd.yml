@@ -83,6 +83,7 @@ jobs:
       - name: Build Docker image
         run: |
           docker build \
+            --build-arg VITE_TMDB_API_TOKEN=${{ secrets.VITE_TMDB_API_TOKEN }} \
             -t ${{ steps.meta.outputs.image }} \
             -t ghcr.io/${{ env.REGISTRY_OWNER }}/${{ env.IMAGE_NAME }}:latest \
             .
