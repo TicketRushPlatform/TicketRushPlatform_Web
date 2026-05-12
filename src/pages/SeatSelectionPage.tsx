@@ -94,7 +94,7 @@ export function SeatSelectionPage() {
         setBookingRoomActive(false)
       }
 
-      const currentEvent = await getEvent(currentShowtime.eventId)
+      const currentEvent = await getEvent(currentShowtime.eventId, currentShowtime)
       if (cancelled) return
       setShowtime(currentShowtime)
       setEvent(currentEvent ?? null)

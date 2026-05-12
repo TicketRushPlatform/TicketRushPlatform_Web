@@ -249,8 +249,8 @@ type BookingDetail = {
   tickets: Ticket[]
 }
 
-const showtimeRequestCache = new Map<string, Promise<Showtime | undefined>>()
-const eventRequestCache = new Map<string, Promise<TicketRushEvent | undefined>>()
+const showtimeApiRequestCache = new Map<string, Promise<ShowtimeApiResponse | undefined>>()
+const eventApiRequestCache = new Map<string, Promise<EventApiResponse | undefined>>()
 const listTicketsInFlight = new Map<string, Promise<BookingDetail[]>>()
 
 export type EventPageResult = {
@@ -447,37 +447,29 @@ function normalizeEvent(item: EventApiResponse, primaryShowtime?: Showtime): Tic
 }
 
 async function getShowtimeFromBackend(showtimeId: string): Promise<Showtime | undefined> {
-  const cached = showtimeRequestCache.get(showtimeId)
-  if (cached) return cached
+  const cached = showtimeApiRequestCache.get(showtimeId)
+  if (cached) {
+    const apiShowtime = await cached
+    return apiShowtime ? normalizeShowtime(apiShowtime) : undefined
+  }
 
-  const request = (async () => {
-    try {
-      const apiShowtime = await fetchEventApi<ShowtimeApiResponse>(`/showtimes/${encodeURIComponent(showtimeId)}`)
-      return normalizeShowtime(apiShowtime)
-    } catch {
-      return undefined
-    }
-  })()
-
-  showtimeRequestCache.set(showtimeId, request)
-  return request
+  const request = fetchEventApi<ShowtimeApiResponse>(`/showtimes/${encodeURIComponent(showtimeId)}`).catch(() => undefined)
+  showtimeApiRequestCache.set(showtimeId, request)
+  const apiShowtime = await request
+  return apiShowtime ? normalizeShowtime(apiShowtime) : undefined
 }
 
 async function getEventFromBackend(eventId: string, primaryShowtime?: Showtime): Promise<TicketRushEvent | undefined> {
-  const cached = eventRequestCache.get(eventId)
-  if (cached) return cached
+  const cached = eventApiRequestCache.get(eventId)
+  if (cached) {
+    const apiEvent = await cached
+    return apiEvent ? normalizeEvent(apiEvent, primaryShowtime) : undefined
+  }
 
-  const request = (async () => {
-    try {
-      const apiEvent = await fetchEventApi<EventApiResponse>(`/events/${encodeURIComponent(eventId)}`)
-      return normalizeEvent(apiEvent, primaryShowtime)
-    } catch {
-      return undefined
-    }
-  })()
-
-  eventRequestCache.set(eventId, request)
-  return request
+  const request = fetchEventApi<EventApiResponse>(`/events/${encodeURIComponent(eventId)}`).catch(() => undefined)
+  eventApiRequestCache.set(eventId, request)
+  const apiEvent = await request
+  return apiEvent ? normalizeEvent(apiEvent, primaryShowtime) : undefined
 }
 
 async function postEventApi<T>(path: string, body: unknown): Promise<T> {
@@ -967,7 +959,10 @@ export async function listEventPage({
   }
 }
 
-export async function getEvent(eventId: string): Promise<TicketRushEvent | undefined> {
+export async function getEvent(eventId: string, primaryShowtime?: Showtime): Promise<TicketRushEvent | undefined> {
+  const backend = await getEventFromBackend(eventId, primaryShowtime)
+  if (backend) return backend
+
   await ensureCatalogBootstrap()
   await delay()
   const state = getFreshState()
@@ -976,6 +971,9 @@ export async function getEvent(eventId: string): Promise<TicketRushEvent | undef
 }
 
 export async function getShowtime(showtimeId: string): Promise<Showtime | undefined> {
+  const backend = await getShowtimeFromBackend(showtimeId)
+  if (backend) return backend
+
   await ensureCatalogBootstrap()
   await delay()
   const state = getFreshState()
@@ -983,10 +981,15 @@ export async function getShowtime(showtimeId: string): Promise<Showtime | undefi
 }
 
 export async function getShowtimesByEvent(eventId: string): Promise<Showtime[]> {
-  await ensureCatalogBootstrap()
-  await delay()
-  const state = getFreshState()
-  return state.showtimes.filter((showtime) => showtime.eventId === eventId)
+  try {
+    const apiShowtimes = await fetchEventApi<ShowtimeApiResponse[]>(`/events/${encodeURIComponent(eventId)}/showtimes`)
+    return apiShowtimes.map((showtime) => normalizeShowtime(showtime))
+  } catch {
+    await ensureCatalogBootstrap()
+    await delay()
+    const state = getFreshState()
+    return state.showtimes.filter((showtime) => showtime.eventId === eventId)
+  }
 }
 
 export async function getSeatsStatus(showtimeId: string): Promise<SeatStatusResponse> {
