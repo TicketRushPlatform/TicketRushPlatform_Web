@@ -34,6 +34,17 @@ export type Soundtrack = {
   externalId?: string
 }
 
+export type EventReview = {
+  id: string
+  eventId: string
+  userId: string
+  authorName: string
+  rating: number
+  comment: string
+  createdAt: string
+  updatedAt: string
+}
+
 export type EventItem = {
   id: string
   creatorId: string

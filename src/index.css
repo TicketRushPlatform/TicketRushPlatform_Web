@@ -1801,12 +1801,14 @@ textarea:focus {
 
 .admin-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 310px;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 310px);
   gap: 24px;
   align-items: start;
+  min-width: 0;
 }
 
 .admin-panel {
+  min-width: 0;
   padding: 24px;
   border-radius: var(--radius-lg);
   box-shadow: 10px 10px 0 #e2e8f0;
@@ -1936,6 +1938,12 @@ textarea:focus {
 .event-table {
   display: grid;
   gap: 10px;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 8px;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
 }
 
 .table-row {
@@ -1943,11 +1951,19 @@ textarea:focus {
   grid-template-columns: minmax(180px, 1.4fr) 110px 120px 120px 90px 80px;
   gap: 12px;
   align-items: center;
+  width: max(100%, 760px);
   min-height: 56px;
   padding: 10px 12px;
   border: 2px solid var(--soft-border);
   border-radius: var(--radius-md);
   font-weight: 700;
+}
+
+.table-row > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .table-row .compact-link {
@@ -2296,6 +2312,149 @@ textarea:focus {
   background: var(--muted);
   font-size: 0.78rem;
   font-weight: 800;
+}
+
+.review-panel {
+  display: grid;
+  gap: 18px;
+}
+
+.review-panel h2 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.review-summary {
+  display: grid;
+  justify-items: end;
+  gap: 4px;
+  min-width: 150px;
+}
+
+.review-summary strong {
+  font-family: var(--font-heading);
+  font-size: 2rem;
+  line-height: 1;
+}
+
+.review-summary span {
+  color: var(--muted-foreground);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.star-rating {
+  display: inline-flex;
+  gap: 3px;
+}
+
+.star-rating button {
+  display: inline-grid;
+  width: 30px;
+  min-height: 30px;
+  place-items: center;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  background: transparent;
+  color: #cbd5e1;
+  padding: 0;
+}
+
+.star-rating button.active {
+  color: var(--tertiary);
+}
+
+.star-rating:not(.readonly) button:hover {
+  border-color: var(--border);
+  background: var(--muted);
+}
+
+.star-rating.readonly button {
+  cursor: default;
+  opacity: 1;
+}
+
+.review-form,
+.review-list {
+  display: grid;
+  gap: 12px;
+}
+
+.review-form {
+  padding: 16px;
+  border: 2px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--background);
+}
+
+.review-form-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.review-form-header strong,
+.review-form-header span {
+  display: block;
+}
+
+.review-form-header span {
+  color: var(--muted-foreground);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.review-form textarea {
+  width: 100%;
+  min-height: 118px;
+  resize: vertical;
+}
+
+.review-form .primary-button {
+  justify-self: end;
+}
+
+.review-error {
+  color: #b91c1c;
+  font-weight: 800;
+}
+
+.review-card,
+.review-empty {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  border: 2px solid var(--soft-border);
+  border-radius: var(--radius-md);
+  background: var(--card);
+}
+
+.review-card-head {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.review-card-head strong,
+.review-empty strong {
+  font-family: var(--font-heading);
+  font-size: 1.05rem;
+}
+
+.review-card-head span,
+.review-empty span {
+  display: block;
+  color: var(--muted-foreground);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.review-card p {
+  color: var(--foreground);
+  line-height: 1.55;
 }
 
 .sound-search-page {
@@ -5591,5 +5750,352 @@ textarea:focus {
 
   .calendar-menu {
     animation: none;
+  }
+}
+
+/* Responsive hardening for data-heavy pages */
+.app-shell,
+.admin-sidebar-layout,
+.admin-sidebar-content,
+.event-detail-page,
+.seat-selection-page,
+.checkout-page,
+.sound-search-page,
+.tickets-page,
+.notifications-page,
+.profile-page,
+.create-event-page,
+.seat-designer-page {
+  min-width: 0;
+}
+
+.seat-row {
+  width: max-content;
+  min-width: 100%;
+}
+
+.seat-row-cells {
+  flex: 0 0 auto;
+}
+
+@media (max-width: 1180px) {
+  .admin-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .side-panel {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .side-panel h2,
+  .side-panel > div[style] {
+    grid-column: 1 / -1;
+  }
+
+  .seat-designer-layout {
+    grid-template-columns: 260px minmax(0, 1fr);
+  }
+
+  .seat-designer-layout > .seat-designer-sidebar {
+    grid-column: 1 / -1;
+    position: static;
+    max-height: none;
+  }
+
+  .seat-tone-tools,
+  .seat-map-summary-grid,
+  .seat-map-dimensions {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 980px) {
+  .admin-sidebar-content {
+    padding: 22px 18px 44px;
+  }
+
+  .event-detail-hero,
+  .movie-detail-grid,
+  .sound-hero,
+  .checkout-layout,
+  .seat-layout,
+  .profile-grid,
+  .waiting-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .event-detail-poster {
+    min-height: 300px;
+    max-height: none;
+  }
+
+  .showtime-grid,
+  .sound-result-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .movie-facts,
+  .ticket-facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .seat-map-library-panel,
+  .seat-designer-sidebar {
+    position: static;
+    max-height: none;
+  }
+
+  .seat-map-paint-scroll {
+    max-height: none;
+    min-height: 420px;
+  }
+}
+
+@media (max-width: 760px) {
+  .admin-sidebar-content {
+    padding: 18px 12px 36px;
+  }
+
+  .admin-sidebar {
+    overflow-x: auto;
+    flex-wrap: wrap;
+    align-items: stretch;
+  }
+
+  .admin-sidebar-brand,
+  .admin-sidebar-section {
+    flex: 0 0 100%;
+  }
+
+  .admin-sidebar-link {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+
+  .showtime-grid,
+  .sound-result-grid,
+  .side-panel,
+  .movie-facts,
+  .ticket-facts,
+  .seat-count-grid,
+  .permission-role-actions,
+  .user-modal-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .event-detail-hero,
+  .admin-card,
+  .sound-hero,
+  .sound-results,
+  .waiting-card,
+  .qr-modal,
+  .leave-checkout-modal,
+  .forgot-password-card,
+  .user-modal,
+  .movie-picker-modal,
+  .movie-detail-modal {
+    padding: 18px;
+    border-radius: var(--radius-md);
+    box-shadow: 6px 6px 0 #e2e8f0;
+  }
+
+  .modal-backdrop,
+  .user-modal-overlay {
+    align-items: start;
+    padding: 12px;
+    overflow-y: auto;
+  }
+
+  .ticket-modal {
+    max-height: calc(100vh - 24px);
+    border-radius: var(--radius-md);
+    box-shadow: 6px 6px 0 var(--foreground);
+  }
+
+  .ticket-modal-body {
+    padding: 18px;
+  }
+
+  .notification-card {
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .notification-card > *:last-child {
+    grid-column: 1 / -1;
+    justify-self: stretch;
+  }
+
+  .sound-result-card {
+    grid-template-columns: 96px minmax(0, 1fr);
+  }
+
+  .seat-grid-wrap {
+    justify-items: start;
+    padding: 14px;
+  }
+
+  .seat-row {
+    flex-direction: row;
+    justify-content: flex-start;
+  }
+
+  .seat-cell {
+    width: 30px;
+    height: 30px;
+    flex-basis: 30px;
+    border-radius: 10px;
+    font-size: 0.68rem;
+  }
+
+  .seat-map-paint-grid {
+    gap: 4px;
+    padding: 10px;
+  }
+
+  .seat-map-paint-seat {
+    border-radius: 5px;
+    font-size: 0;
+  }
+
+  .seat-tone-tools,
+  .seat-map-summary-grid,
+  .seat-map-dimensions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 520px) {
+  .app-shell {
+    padding-inline: 10px;
+  }
+
+  .site-header,
+  .admin-sidebar {
+    box-shadow: 3px 3px 0 var(--foreground);
+  }
+
+  .brand-mark {
+    min-width: 0;
+  }
+
+  .hero-copy h1,
+  .auth-copy h1,
+  .profile-hero h1,
+  .admin-hero h1,
+  .event-detail-info h1,
+  .seat-title-block h1,
+  .seat-designer-topbar h1 {
+    font-size: 2.35rem;
+    line-height: 1.02;
+  }
+
+  .featured-poster,
+  .event-detail-poster {
+    min-height: 260px;
+  }
+
+  .trailer-frame {
+    min-height: auto;
+  }
+
+  .compact-button,
+  .compact-link,
+  .primary-button,
+  .secondary-button {
+    width: 100%;
+    justify-content: center;
+    min-width: 0;
+  }
+
+  .pagination,
+  .movie-picker-pagination,
+  .create-actions,
+  .showtime-row-title,
+  .review-form-header,
+  .review-card-head,
+  .panel-heading,
+  .seat-header,
+  .seat-designer-topbar,
+  .seat-map-canvas-toolbar,
+  .permission-role-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .movie-pagination-numbers {
+    max-width: 100%;
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+
+  .ticket-tier,
+  .selected-seat-list div,
+  .checkout-event,
+  .publish-card,
+  .tmdb-movie-selected {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .checkout-event img {
+    width: 100%;
+    height: 150px;
+  }
+
+  .ticket-qr,
+  .ticket-qr.large {
+    width: min(100%, 240px);
+    height: auto;
+    aspect-ratio: 1;
+    justify-self: center;
+  }
+
+  .review-summary {
+    justify-items: start;
+  }
+
+  .review-form .primary-button {
+    justify-self: stretch;
+  }
+
+  .movie-picker-modal,
+  .movie-detail-modal {
+    width: 100% !important;
+    padding: 14px !important;
+  }
+
+  .movie-detail-facts > div {
+    grid-template-columns: 1fr;
+  }
+
+  .movie-picker-grid,
+  .admin-movie-grid {
+    grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
+  }
+
+  .seat-map-library-panel,
+  .seat-designer-canvas-panel,
+  .seat-designer-sidebar {
+    padding: 14px;
+  }
+
+  .seat-designer-canvas {
+    min-height: 64vh;
+  }
+
+  .seat-map-paint-scroll {
+    min-height: 360px;
+    padding: 8px;
+  }
+
+  .designer-canvas-tools {
+    top: 8px;
+    right: 8px;
+  }
+
+  .designer-canvas-scale {
+    top: 54px;
+    right: 8px;
   }
 }
