@@ -62,6 +62,7 @@ type EventApiResponse = {
   age_rating?: string | null
   release_date?: string | null
   language?: string | null
+  trailer_url?: string | null
   max_tickets_per_booking?: number | null
   created_at?: string
   updated_at?: string
@@ -141,6 +142,7 @@ type CreateEventApiRequest = {
   age_rating?: string
   release_date?: string
   language?: string
+  trailer_url?: string
   max_tickets_per_booking?: number | null
 }
 
@@ -727,7 +729,7 @@ function normalizeMovieMetadata(event: EventApiResponse): MovieMetadata | undefi
     cast: ['TBA'],
     durationMinutes: event.duration_minutes,
     ageRating: event.age_rating ?? 'K',
-    trailerUrl: '',
+    trailerUrl: event.trailer_url ?? '',
     genres: [event.category ?? 'Cinema'],
     synopsis: event.description || 'No synopsis available.',
   }
@@ -1265,6 +1267,7 @@ export async function createEvent(payload: CreateEventPayload): Promise<TicketRu
     age_rating: payload.kind === 'MOVIE' ? payload.movie?.ageRating : undefined,
     release_date: payload.kind === 'MOVIE' ? `${payload.date}T00:00:00Z` : undefined,
     language: payload.kind === 'MOVIE' ? 'Vietnamese' : undefined,
+    trailer_url: payload.kind === 'MOVIE' ? payload.movie?.trailerUrl : undefined,
     max_tickets_per_booking: payload.maxTicketsPerBooking ?? null,
   }
   const created = await postEventApi<EventApiResponse>('/events', apiPayload)
@@ -1319,6 +1322,7 @@ export async function updateEvent(eventId: string, payload: CreateEventPayload):
     age_rating: payload.kind === 'MOVIE' ? payload.movie?.ageRating : undefined,
     release_date: payload.kind === 'MOVIE' ? `${payload.date}T00:00:00Z` : undefined,
     language: payload.kind === 'MOVIE' ? 'Vietnamese' : undefined,
+    trailer_url: payload.kind === 'MOVIE' ? payload.movie?.trailerUrl : undefined,
     max_tickets_per_booking: payload.maxTicketsPerBooking ?? null,
   }
   await putEventApi<EventApiResponse>(`/events/${encodeURIComponent(eventId)}`, apiPayload)
