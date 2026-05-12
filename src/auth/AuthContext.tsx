@@ -1,6 +1,6 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { clearTokens, loadTokens, saveTokens } from '../services/authStorage'
+import { AUTH_CHANGE_EVENT, clearTokens, getTokenPersistence, loadTokens, saveTokens } from '../services/authStorage'
 import {
   getMe,
   login,
@@ -36,7 +36,7 @@ const AuthContext = createContext<AuthContextValue | null>(null)
 async function tryRefreshTokens(stored: TokenPair): Promise<TokenPair | null> {
   try {
     const newTokens = await refresh({ refresh_token: stored.refresh_token })
-    saveTokens(newTokens, { persist: true })
+    saveTokens(newTokens, { persist: getTokenPersistence() ?? true })
     return newTokens
   } catch {
     return null
@@ -50,9 +50,46 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const hydrateUser = useCallback(async (nextTokens: TokenPair) => {
     const nextUser = await getMe(nextTokens.access_token)
-    setTokens(nextTokens)
+    setTokens(loadTokens() ?? nextTokens)
     setUser(nextUser)
     return nextUser
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    async function syncFromStorage() {
+      const stored = loadTokens()
+      if (!stored) {
+        setTokens(null)
+        setUser(null)
+        return
+      }
+      try {
+        const nextUser = await getMe(stored.access_token)
+        if (cancelled) return
+        setTokens(loadTokens() ?? stored)
+        setUser(nextUser)
+      } catch {
+        const refreshed = await tryRefreshTokens(stored)
+        if (!refreshed || cancelled) return
+        try {
+          const nextUser = await getMe(refreshed.access_token)
+          if (cancelled) return
+          setTokens(refreshed)
+          setUser(nextUser)
+        } catch {
+          if (!cancelled) clearTokens()
+        }
+      }
+    }
+
+    window.addEventListener(AUTH_CHANGE_EVENT, syncFromStorage)
+    window.addEventListener('storage', syncFromStorage)
+    return () => {
+      cancelled = true
+      window.removeEventListener(AUTH_CHANGE_EVENT, syncFromStorage)
+      window.removeEventListener('storage', syncFromStorage)
+    }
   }, [])
 
   // Auto-refresh: set up a timer to refresh the access token before it expires
@@ -90,7 +127,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         const nextUser = await getMe(stored.access_token)
         if (cancelled) return
-        setTokens(stored)
+        setTokens(loadTokens() ?? stored)
         setUser(nextUser)
       } catch {
         // Access token likely expired - try refresh
@@ -196,4 +233,3 @@ export function useAuth() {
   if (!context) throw new Error('useAuth must be used inside AuthProvider')
   return context
 }
-
