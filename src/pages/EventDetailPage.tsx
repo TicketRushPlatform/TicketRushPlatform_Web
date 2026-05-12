@@ -8,16 +8,19 @@ import {
   Edit3,
   LoaderCircle,
   MapPin,
+  MessageSquareText,
   Music2,
+  Send,
   ShieldCheck,
+  Star,
   Ticket,
   UsersRound,
 } from 'lucide-react'
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
-import { formatCurrency, formatDate, getEvent, getSeatsStatus, getShowtimesByEvent } from '../services/ticketRushApi'
-import type { Showtime, TicketRushEvent } from '../types'
+import { createEventReview, formatCurrency, formatDate, getEvent, getSeatsStatus, getShowtimesByEvent, listEventReviews } from '../services/ticketRushApi'
+import type { EventReview, Showtime, TicketRushEvent } from '../types'
 
 type ShowtimeSeatStats = {
   available: number
@@ -34,6 +37,11 @@ export function EventDetailPage() {
   const [event, setEvent] = useState<TicketRushEvent | null>(null)
   const [showtimes, setShowtimes] = useState<Showtime[]>([])
   const [showtimeStats, setShowtimeStats] = useState<Record<string, ShowtimeSeatStats>>({})
+  const [reviews, setReviews] = useState<EventReview[]>([])
+  const [reviewRating, setReviewRating] = useState(5)
+  const [reviewComment, setReviewComment] = useState('')
+  const [reviewError, setReviewError] = useState<string | null>(null)
+  const [isSubmittingReview, setIsSubmittingReview] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
@@ -74,6 +82,18 @@ export function EventDetailPage() {
     }
   }, [showtimes])
 
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      if (!eventId) return
+      const nextReviews = await listEventReviews(eventId)
+      if (!cancelled) setReviews(nextReviews)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [eventId])
+
   if (isLoading) {
     return (
       <section className="state-page">
@@ -107,6 +127,7 @@ export function EventDetailPage() {
   const bannerCapacity = loadedStats.length > 0 ? loadedStats.reduce((sum, stats) => sum + stats.total, 0) : event.capacity
   const bannerUnavailable = loadedStats.length > 0 ? loadedStats.reduce((sum, stats) => sum + stats.sold + stats.holding, 0) : event.sold
   const soldPercent = bannerCapacity > 0 ? Math.round((bannerUnavailable / bannerCapacity) * 100) : 0
+  const averageRating = reviews.length > 0 ? reviews.reduce((sum, review) => sum + review.rating, 0) / reviews.length : 0
 
   function openBooking(showtime: Showtime) {
     const nextPath = showtime.queueEnabled ? `/queue/${showtime.id}` : `/showtimes/${showtime.id}/seats`
@@ -115,6 +136,39 @@ export function EventDetailPage() {
       return
     }
     navigate(nextPath)
+  }
+
+  async function submitReview(eventSubmit: FormEvent<HTMLFormElement>) {
+    eventSubmit.preventDefault()
+    if (!eventId || !event) return
+    if (!auth.isAuthenticated) {
+      navigate(`/login?next=${encodeURIComponent(`/events/${event.id}`)}`)
+      return
+    }
+
+    const comment = reviewComment.trim()
+    if (comment.length < 2) {
+      setReviewError('Please write a short comment before submitting.')
+      return
+    }
+
+    setIsSubmittingReview(true)
+    setReviewError(null)
+    try {
+      const review = await createEventReview(eventId, {
+        rating: reviewRating,
+        comment,
+        authorName: auth.user?.full_name ?? 'TicketRush user',
+        userId: auth.user?.id,
+      })
+      setReviews((current) => [review, ...current])
+      setReviewComment('')
+      setReviewRating(5)
+    } catch (err) {
+      setReviewError(err instanceof Error ? err.message : 'Could not submit your review.')
+    } finally {
+      setIsSubmittingReview(false)
+    }
   }
 
   return (
@@ -271,7 +325,89 @@ export function EventDetailPage() {
           )})}
         </div>
       </section>
+
+      <section className="admin-card review-panel" aria-labelledby="review-title">
+        <div className="panel-heading">
+          <div>
+            <h2 id="review-title">
+              <MessageSquareText size={24} strokeWidth={2.5} />
+              Community reviews
+            </h2>
+            <p>Read audience comments and leave your own rating for this listing.</p>
+          </div>
+          <div className="review-summary" aria-label={reviews.length ? `${averageRating.toFixed(1)} out of 5 stars` : 'No ratings yet'}>
+            <strong>{reviews.length ? averageRating.toFixed(1) : '-'}</strong>
+            <StarRating value={Math.round(averageRating)} readonly />
+            <span>{reviews.length} review{reviews.length === 1 ? '' : 's'}</span>
+          </div>
+        </div>
+
+        <form className="review-form" onSubmit={submitReview}>
+          <div className="review-form-header">
+            <div>
+              <strong>{auth.isAuthenticated ? `Review as ${auth.user?.full_name ?? 'TicketRush user'}` : 'Sign in to review'}</strong>
+              <span>Your comment will be visible to other customers.</span>
+            </div>
+            <StarRating value={reviewRating} onChange={setReviewRating} />
+          </div>
+          <textarea
+            value={reviewComment}
+            onChange={(eventChange) => setReviewComment(eventChange.target.value)}
+            placeholder="Share what other customers should know about this event..."
+            maxLength={2000}
+            disabled={!auth.isAuthenticated || isSubmittingReview}
+          />
+          {reviewError && <p className="review-error">{reviewError}</p>}
+          <button className="primary-button compact-button" type="submit" disabled={!auth.isAuthenticated || isSubmittingReview}>
+            {isSubmittingReview ? 'Submitting...' : 'Post review'}
+            <span>
+              <Send size={18} strokeWidth={2.5} />
+            </span>
+          </button>
+        </form>
+
+        <div className="review-list">
+          {reviews.length === 0 ? (
+            <div className="review-empty">
+              <strong>No reviews yet</strong>
+              <span>Be the first person to rate this event.</span>
+            </div>
+          ) : (
+            reviews.map((review) => (
+              <article className="review-card" key={review.id}>
+                <div className="review-card-head">
+                  <div>
+                    <strong>{review.authorName}</strong>
+                    <span>{new Date(review.createdAt).toLocaleDateString()}</span>
+                  </div>
+                  <StarRating value={review.rating} readonly />
+                </div>
+                <p>{review.comment}</p>
+              </article>
+            ))
+          )}
+        </div>
+      </section>
     </section>
+  )
+}
+
+function StarRating({ value, onChange, readonly = false }: { value: number; onChange?: (value: number) => void; readonly?: boolean }) {
+  return (
+    <div className={`star-rating ${readonly ? 'readonly' : ''}`} aria-label={`${value} out of 5 stars`}>
+      {[1, 2, 3, 4, 5].map((star) => (
+        <button
+          aria-label={`${star} star${star === 1 ? '' : 's'}`}
+          className={star <= value ? 'active' : ''}
+          disabled={readonly}
+          key={star}
+          onClick={() => onChange?.(star)}
+          type="button"
+        >
+          <Star size={18} fill="currentColor" strokeWidth={2.5} />
+        </button>
+      ))}
+    </div>
   )
 }
 

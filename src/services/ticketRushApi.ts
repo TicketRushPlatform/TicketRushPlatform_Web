@@ -9,6 +9,7 @@ import type {
   EventCategory,
   EventItem,
   EventKind,
+  EventReview,
   MovieMetadata,
   NotificationItem,
   QueueSession,
@@ -78,6 +79,23 @@ type ShowtimeApiResponse = {
   seat_map_name: string
   queue_enabled?: boolean
   queue_limit?: number
+}
+
+type EventReviewApiResponse = {
+  id: string
+  event_id: string
+  user_id: string
+  author_name: string
+  rating: number
+  comment: string
+  created_at: string
+  updated_at: string
+}
+
+type CreateEventReviewApiRequest = {
+  rating: number
+  comment: string
+  author_name?: string
 }
 
 export type EventListFilters = {
@@ -537,6 +555,77 @@ async function postEventApi<T>(path: string, body: unknown): Promise<T> {
   }
   const payload = (await response.json()) as { data: T }
   return payload.data
+}
+
+function normalizeEventReview(review: EventReviewApiResponse): EventReview {
+  return {
+    id: review.id,
+    eventId: review.event_id,
+    userId: review.user_id,
+    authorName: review.author_name,
+    rating: review.rating,
+    comment: review.comment,
+    createdAt: review.created_at,
+    updatedAt: review.updated_at,
+  }
+}
+
+function localReviewStorageKey(eventId: string) {
+  return `ticketrush.eventReviews.${eventId}`
+}
+
+function readLocalEventReviews(eventId: string): EventReview[] {
+  if (typeof window === 'undefined') return []
+  try {
+    const raw = window.localStorage.getItem(localReviewStorageKey(eventId))
+    return raw ? (JSON.parse(raw) as EventReview[]) : []
+  } catch {
+    return []
+  }
+}
+
+function writeLocalEventReviews(eventId: string, reviews: EventReview[]) {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(localReviewStorageKey(eventId), JSON.stringify(reviews))
+}
+
+export async function listEventReviews(eventId: string): Promise<EventReview[]> {
+  try {
+    const reviews = await fetchEventApi<EventReviewApiResponse[]>(`/events/${encodeURIComponent(eventId)}/reviews`)
+    return reviews.map(normalizeEventReview)
+  } catch {
+    return readLocalEventReviews(eventId)
+  }
+}
+
+export async function createEventReview(
+  eventId: string,
+  payload: { rating: number; comment: string; authorName?: string; userId?: string },
+): Promise<EventReview> {
+  const apiPayload: CreateEventReviewApiRequest = {
+    rating: payload.rating,
+    comment: payload.comment,
+    author_name: payload.authorName,
+  }
+  try {
+    const review = await postEventApi<EventReviewApiResponse>(`/events/${encodeURIComponent(eventId)}/reviews`, apiPayload)
+    return normalizeEventReview(review)
+  } catch (err) {
+    if (isUuidOrUrnUuid(eventId)) throw err
+    const now = new Date().toISOString()
+    const review: EventReview = {
+      id: `local-review-${Date.now()}`,
+      eventId,
+      userId: payload.userId ?? 'local-user',
+      authorName: payload.authorName?.trim() || 'TicketRush user',
+      rating: payload.rating,
+      comment: payload.comment.trim(),
+      createdAt: now,
+      updatedAt: now,
+    }
+    writeLocalEventReviews(eventId, [review, ...readLocalEventReviews(eventId)])
+    return review
+  }
 }
 
 async function putEventApi<T>(path: string, body: unknown): Promise<T> {
