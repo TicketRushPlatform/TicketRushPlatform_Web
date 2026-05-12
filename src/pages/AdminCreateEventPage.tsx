@@ -16,29 +16,58 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
 import { Link, useLocation, useParams } from 'react-router-dom'
-import { createEvent, getEvent, getShowtimesByEvent, updateEvent } from '../services/ticketRushApi'
+import { createEvent, fetchSeatMaps, getEvent, getShowtimesByEvent, updateEvent } from '../services/ticketRushApi'
 import type { EventCategory, SeatSectionInput, TicketStatus } from '../types'
 import type { EnrichedTmdbMovie } from '../services/tmdbApi'
-import { SeatMapDesignerPage, loadSavedSeatMaps, type SavedSeatMap } from './SeatMapDesignerPage'
+import { SeatMapDesignerPage, type SavedSeatMap } from './SeatMapDesignerPage'
 import { MoviePickerModal } from './MoviePickerModal'
 
-const defaultSeatMaps: SavedSeatMap[] = [
-  {
-    id: 'concert-main',
-    name: 'Concert Main Hall',
-    venue: 'TicketRush Arena',
-    address: 'District 1, Ho Chi Minh City',
-    rows: 14,
-    cols: 18,
-    sections: [
-      { name: 'VIP', rowCount: 3, seatsPerRow: 18, seatClass: 'VIP', price: 180000 },
-      { name: 'Reserved', rowCount: 4, seatsPerRow: 18, seatClass: 'PREMIUM', price: 120000 },
-      { name: 'Standard', rowCount: 4, seatsPerRow: 18, seatClass: 'STANDARD', price: 90000 },
-      { name: 'Balcony', rowCount: 3, seatsPerRow: 18, seatClass: 'STANDARD', price: 70000 },
-    ],
-    seats: [],
-  },
-]
+type SeatMapApiSeat = {
+  row: string
+  number: number
+  seat_class: SeatSectionInput['seatClass']
+  price: number
+}
+
+function buildSectionsFromApiSeats(apiSeats?: SeatMapApiSeat[]): SeatSectionInput[] {
+  if (!apiSeats?.length) return []
+  const rowGroups = new Map<string, SeatMapApiSeat[]>()
+  for (const seat of apiSeats) {
+    const seats = rowGroups.get(seat.row) ?? []
+    seats.push(seat)
+    rowGroups.set(seat.row, seats)
+  }
+
+  const rows = [...rowGroups.entries()].sort(([first], [second]) => first.localeCompare(second, undefined, { numeric: true }))
+  const sections: SeatSectionInput[] = []
+  let current: SeatSectionInput | null = null
+
+  for (const [, seats] of rows) {
+    const sortedSeats = [...seats].sort((first, second) => first.number - second.number)
+    const firstSeat = sortedSeats[0]
+    if (!firstSeat) continue
+    const rowSection = {
+      name: firstSeat.seat_class.charAt(0) + firstSeat.seat_class.slice(1).toLowerCase(),
+      rowCount: 1,
+      seatsPerRow: sortedSeats.length,
+      seatClass: firstSeat.seat_class,
+      price: Number(firstSeat.price),
+    }
+    if (
+      current &&
+      current.seatClass === rowSection.seatClass &&
+      current.price === rowSection.price &&
+      current.seatsPerRow === rowSection.seatsPerRow
+    ) {
+      current.rowCount += 1
+    } else {
+      current = rowSection
+      sections.push(current)
+    }
+  }
+
+  return sections
+}
 
 function fileToDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -74,10 +103,7 @@ export function AdminCreateEventPage({ asModal, onSuccess, onClose }: { asModal?
   const location = useLocation()
   const eventId = asModal ? undefined : paramEventId
   const isEditMode = Boolean(eventId)
-  const [availableSeatMaps, setAvailableSeatMaps] = useState<SavedSeatMap[]>(() => {
-    const saved = loadSavedSeatMaps()
-    return saved.length ? saved : defaultSeatMaps
-  })
+  const [availableSeatMaps, setAvailableSeatMaps] = useState<SavedSeatMap[]>([])
   const [eventName, setEventName] = useState('')
   const [category, setCategory] = useState<EventCategory>('Music')
   const [status, setStatus] = useState<TicketStatus>('Available')
@@ -130,9 +156,27 @@ export function AdminCreateEventPage({ asModal, onSuccess, onClose }: { asModal?
   }
 
   const refreshSeatMaps = useCallback(() => {
-    const saved = loadSavedSeatMaps()
-    setAvailableSeatMaps(saved.length ? saved : defaultSeatMaps)
+    fetchSeatMaps()
+      .then((maps) =>
+        setAvailableSeatMaps(
+          maps.map((m) => ({
+            id: m.id,
+            name: m.name,
+            venue: m.venue_name,
+            address: m.venue_address,
+            rows: 0,
+            cols: 0,
+            sections: buildSectionsFromApiSeats(m.seats),
+            seats: [],
+          })),
+        ),
+      )
+      .catch(() => { })
   }, [])
+
+  useEffect(() => {
+    refreshSeatMaps()
+  }, [refreshSeatMaps])
 
   function onPosterSelected(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]
@@ -154,6 +198,7 @@ export function AdminCreateEventPage({ asModal, onSuccess, onClose }: { asModal?
 
   useEffect(() => {
     if (!eventId) return
+    if (!availableSeatMaps.length) return
     const targetEventId = eventId
     let isCancelled = false
     async function loadEventForEdit() {
@@ -188,7 +233,7 @@ export function AdminCreateEventPage({ asModal, onSuccess, onClose }: { asModal?
               id: item.id,
               date,
               time,
-              seatMapId: availableSeatMaps.find((seatMap) => seatMap.name === item.seatMapName)?.id ?? availableSeatMaps[0].id,
+              seatMapId: availableSeatMaps.find((seatMap) => seatMap.name === item.seatMapName)?.id ?? availableSeatMaps[0]?.id ?? '',
               queueEnabled: Boolean(item.queueEnabled),
               queueLimit: item.queueLimit ?? 200,
               durationMs,
@@ -208,7 +253,7 @@ export function AdminCreateEventPage({ asModal, onSuccess, onClose }: { asModal?
     return () => {
       isCancelled = true
     }
-  }, [eventId])
+  }, [availableSeatMaps, eventId])
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -235,17 +280,12 @@ export function AdminCreateEventPage({ asModal, onSuccess, onClose }: { asModal?
       const isMovie = isMovieCategory || Boolean(selectedTmdbMovie)
       const primarySeatMap = availableSeatMaps.find((item) => item.id === primaryShowtime.seatMapId)
 
-      // Build sections from seat map if available, otherwise use defaults
       const buildSections = (): SeatSectionInput[] => {
-        if (isMovie) {
-          return [
-            { name: 'Front', rowCount: 2, seatsPerRow: 10, seatClass: 'STANDARD', price: 120000 },
-            { name: 'Center', rowCount: 3, seatsPerRow: 10, seatClass: 'VIP', price: 180000 },
-            { name: 'Back', rowCount: 3, seatsPerRow: 10, seatClass: 'PREMIUM', price: 260000 },
-          ]
-        }
         if (primarySeatMap?.sections?.length) {
           return primarySeatMap.sections
+        }
+        if (isMovie) {
+          return [{ name: 'Default', rowCount: 10, seatsPerRow: 12, seatClass: 'STANDARD', price: 120000 }]
         }
         return [{ name: 'Default', rowCount: 10, seatsPerRow: 12, seatClass: 'STANDARD', price: 120000 }]
       }
@@ -257,9 +297,9 @@ export function AdminCreateEventPage({ asModal, onSuccess, onClose }: { asModal?
         status,
         date: primaryShowtime.date,
         time: primaryShowtime.time,
-        venue: primarySeatMap?.venue ?? city.trim(),
+        venue: primarySeatMap?.venue || city.trim(),
         city: city.trim(),
-        address: primarySeatMap?.address ?? city.trim(),
+        address: primarySeatMap?.address || city.trim(),
         description: description.trim(),
         imageUrl: posterForApi,
         isFlashSale: status === 'Flash Sale',
@@ -273,8 +313,8 @@ export function AdminCreateEventPage({ asModal, onSuccess, onClose }: { asModal?
               date: showtime.date,
               time: showtime.time,
               seatMapName: seatMap?.name ?? 'Auto map',
-              venue: seatMap?.venue ?? city.trim(),
-              address: seatMap?.address ?? city.trim(),
+              venue: seatMap?.venue || city.trim(),
+              address: seatMap?.address || city.trim(),
               queueEnabled: showtime.queueEnabled,
               queueLimit: showtime.queueEnabled ? showtime.queueLimit : undefined,
               durationMs: isMovie ? (selectedTmdbMovie?.runtime ?? eventDurationMinutes) * 60 * 1000 : showtime.durationMs,
@@ -284,16 +324,16 @@ export function AdminCreateEventPage({ asModal, onSuccess, onClose }: { asModal?
         maxTicketsPerBooking: maxTicketsPerBooking.trim() ? Number(maxTicketsPerBooking.trim()) : null,
         ...(isMovie && selectedTmdbMovie
           ? {
-              movie: {
-                director: selectedTmdbMovie.director,
-                cast: selectedTmdbMovie.cast,
-                durationMinutes: selectedTmdbMovie.runtime,
-                ageRating: selectedTmdbMovie.ageRating,
-                trailerUrl: selectedTmdbMovie.trailerUrl,
-                genres: selectedTmdbMovie.genres,
-                synopsis: selectedTmdbMovie.overview,
-              },
-            }
+            movie: {
+              director: selectedTmdbMovie.director,
+              cast: selectedTmdbMovie.cast,
+              durationMinutes: selectedTmdbMovie.runtime,
+              ageRating: selectedTmdbMovie.ageRating,
+              trailerUrl: selectedTmdbMovie.trailerUrl,
+              genres: selectedTmdbMovie.genres,
+              synopsis: selectedTmdbMovie.overview,
+            },
+          }
           : {}),
       }
       if (isEditMode && eventId) {
@@ -625,8 +665,8 @@ export function AdminCreateEventPage({ asModal, onSuccess, onClose }: { asModal?
               asModal
               onClose={() => setIsCreatingSeatMap(false)}
               onSave={(savedMap) => {
+                setAvailableSeatMaps((current) => [...current.filter((item) => item.id !== savedMap.id), savedMap])
                 refreshSeatMaps()
-                // Select the newly created map in the first showtime
                 if (savedMap) {
                   setShowtimes((current) =>
                     current.map((st, i) => (i === 0 ? { ...st, seatMapId: savedMap.id } : st)),

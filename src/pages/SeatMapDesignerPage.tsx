@@ -1,6 +1,8 @@
 import { ArrowLeft, Circle, Save, Square, Ticket, Triangle, X } from 'lucide-react'
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { config } from '../config/env'
+import { loadTokens } from '../services/authStorage'
 import type { SeatClass, SeatSectionInput } from '../types'
 
 type SeatTone = 'vip' | 'reserved' | 'standard' | 'balcony'
@@ -123,6 +125,7 @@ export function SeatMapDesignerPage({ asModal, onClose, onSave }: { asModal?: bo
   const [dragCurrent, setDragCurrent] = useState<{ row: number; col: number } | null>(null)
   const [isDragging, setIsDragging] = useState(false)
   const [saveNote, setSaveNote] = useState<string | null>(null)
+  const [isSaving, setIsSaving] = useState(false)
   const [seatPrices, setSeatPrices] = useState<Record<SeatTone, number>>({
     vip: 180000,
     reserved: 120000,
@@ -182,30 +185,91 @@ export function SeatMapDesignerPage({ asModal, onClose, onSave }: { asModal?: bo
     setSaveNote(`Updated ${selectedSeatIds.length} seats to ${tone.toUpperCase()}.`)
   }
 
-  function saveMap() {
+  async function createSeatMapViaApi(payload: {
+    name: string
+    venue: string
+    address: string
+    seats: Array<{ row: string; number: number; seat_class: SeatClass; price: number }>
+  }): Promise<SavedSeatMap> {
+    const token = loadTokens()?.access_token
+    const response = await fetch(`${config.api.eventBaseUrl}/seat-maps`, {
+      method: 'POST',
+      headers: {
+        accept: 'application/json',
+        'content-type': 'application/json',
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(payload),
+    })
+    if (!response.ok) {
+      let message = 'Failed to save seat map via backend API.'
+      try {
+        const body = (await response.json()) as { message?: string }
+        if (body.message) message = body.message
+      } catch {
+        // Keep default message.
+      }
+      throw new Error(message)
+    }
+    const body = (await response.json()) as { data: { id: string; name: string; venue_name: string; venue_address: string } }
+    return {
+      id: body.data.id,
+      name: body.data.name,
+      venue: body.data.venue_name,
+      address: body.data.venue_address,
+      rows,
+      cols,
+      sections: buildSectionsFromSeats(seats, cols, seatPrices),
+      seats: seats.map((s) => ({ row: s.row, col: s.col, tone: s.tone })),
+    }
+  }
+
+  async function saveMap() {
+    if (isSaving) return
     const name = mapName.trim() || `Seat Map ${new Date().toLocaleTimeString()}`
     const sections = buildSectionsFromSeats(seats, cols, seatPrices)
     const seatData = seats.map((s) => ({ row: s.row, col: s.col, tone: s.tone }))
+    setIsSaving(true)
+    setSaveNote(null)
 
-    const newMap: SavedSeatMap = {
-      id: `seatmap-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      name,
-      venue: mapVenue.trim() || 'Custom Venue',
-      address: mapAddress.trim() || 'Custom Address',
-      rows,
-      cols,
-      sections,
-      seats: seatData,
-    }
+    try {
+      const venue = mapVenue.trim() || 'Custom Venue'
+      const address = mapAddress.trim() || 'Custom Address'
+      const savedMap = await createSeatMapViaApi({
+        name,
+        venue,
+        address,
+        seats: seats.map((seat) => ({
+          row: toSeatRowLabel(seat.row),
+          number: seat.col + 1,
+          seat_class: toneToSeatClass[seat.tone],
+          price: seatPrices[seat.tone],
+        })),
+      })
 
-    const existing = loadSavedSeatMaps()
-    saveSeatMapsToStorage([...existing, newMap])
-    setSaveNote(`Seat map "${name}" saved with ${seats.length} seats.`)
+      const newMap: SavedSeatMap = {
+        ...savedMap,
+        venue,
+        address,
+        rows,
+        cols,
+        sections,
+        seats: seatData,
+      }
 
-    if (onSave) {
-      onSave(newMap)
-    } else if (onClose) {
-      onClose()
+      const existing = loadSavedSeatMaps()
+      saveSeatMapsToStorage([...existing.filter((item) => item.id !== newMap.id), newMap])
+      setSaveNote(`Seat map "${name}" saved with ${seats.length} seats.`)
+
+      if (onSave) {
+        onSave(newMap)
+      } else if (onClose) {
+        onClose()
+      }
+    } catch (error) {
+      setSaveNote(error instanceof Error ? error.message : 'Failed to save seat map via backend API.')
+    } finally {
+      setIsSaving(false)
     }
   }
 
@@ -322,8 +386,8 @@ export function SeatMapDesignerPage({ asModal, onClose, onSave }: { asModal?: bo
             <button className="secondary-button" type="button" onClick={() => { setDragStart(null); setDragCurrent(null) }} disabled={!selectedSeatIds.length}>
               Clear selection
             </button>
-            <button className="primary-button compact-button" type="button" onClick={saveMap}>
-              Save map
+            <button className="primary-button compact-button" type="button" onClick={saveMap} disabled={isSaving}>
+              {isSaving ? 'Saving...' : 'Save map'}
               <span>
                 <Save size={16} strokeWidth={2.5} />
               </span>
