@@ -249,6 +249,10 @@ type BookingDetail = {
   tickets: Ticket[]
 }
 
+const showtimeRequestCache = new Map<string, Promise<Showtime | undefined>>()
+const eventRequestCache = new Map<string, Promise<TicketRushEvent | undefined>>()
+const listTicketsInFlight = new Map<string, Promise<BookingDetail[]>>()
+
 export type EventPageResult = {
   events: EventItem[]
   page: number
@@ -443,21 +447,37 @@ function normalizeEvent(item: EventApiResponse, primaryShowtime?: Showtime): Tic
 }
 
 async function getShowtimeFromBackend(showtimeId: string): Promise<Showtime | undefined> {
-  try {
-    const apiShowtime = await fetchEventApi<ShowtimeApiResponse>(`/showtimes/${encodeURIComponent(showtimeId)}`)
-    return normalizeShowtime(apiShowtime)
-  } catch {
-    return undefined
-  }
+  const cached = showtimeRequestCache.get(showtimeId)
+  if (cached) return cached
+
+  const request = (async () => {
+    try {
+      const apiShowtime = await fetchEventApi<ShowtimeApiResponse>(`/showtimes/${encodeURIComponent(showtimeId)}`)
+      return normalizeShowtime(apiShowtime)
+    } catch {
+      return undefined
+    }
+  })()
+
+  showtimeRequestCache.set(showtimeId, request)
+  return request
 }
 
 async function getEventFromBackend(eventId: string, primaryShowtime?: Showtime): Promise<TicketRushEvent | undefined> {
-  try {
-    const apiEvent = await fetchEventApi<EventApiResponse>(`/events/${encodeURIComponent(eventId)}`)
-    return normalizeEvent(apiEvent, primaryShowtime)
-  } catch {
-    return undefined
-  }
+  const cached = eventRequestCache.get(eventId)
+  if (cached) return cached
+
+  const request = (async () => {
+    try {
+      const apiEvent = await fetchEventApi<EventApiResponse>(`/events/${encodeURIComponent(eventId)}`)
+      return normalizeEvent(apiEvent, primaryShowtime)
+    } catch {
+      return undefined
+    }
+  })()
+
+  eventRequestCache.set(eventId, request)
+  return request
 }
 
 async function postEventApi<T>(path: string, body: unknown): Promise<T> {
@@ -1063,6 +1083,11 @@ export async function confirmBooking(bookingId: string): Promise<BookingDetail> 
 }
 
 export async function listTickets(userId = DEFAULT_USER_ID): Promise<BookingDetail[]> {
+  const cacheKey = userId ?? DEFAULT_USER_ID
+  const existing = listTicketsInFlight.get(cacheKey)
+  if (existing) return existing
+
+  const request = (async () => {
   const token = loadTokens()?.access_token
   const response = await fetch(`${config.api.bookingBaseUrl}/bookings/user/${encodeURIComponent(userId)}?page=1&page_size=50`, {
     headers: {
@@ -1075,6 +1100,14 @@ export async function listTickets(userId = DEFAULT_USER_ID): Promise<BookingDeta
   const paidBookings = payload.data.filter((booking) => booking.status === 'PAID')
   const details = await Promise.all(paidBookings.map((booking) => mapBookingApiToDetail(booking, userId)))
   return details.filter((detail): detail is BookingDetail => Boolean(detail))
+  })()
+
+  listTicketsInFlight.set(cacheKey, request)
+  try {
+    return await request
+  } finally {
+    listTicketsInFlight.delete(cacheKey)
+  }
 }
 
 export async function listBookingsByUser(userId = DEFAULT_USER_ID): Promise<BookingDetail[]> {

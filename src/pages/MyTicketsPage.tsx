@@ -2,7 +2,7 @@ import QRCode from 'qrcode'
 import { CalendarDays, LoaderCircle, MapPin, QrCode, TicketCheck, X } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { useAuth } from '../auth/AuthContext'
-import { formatCurrency, formatDate, listBookingsByUser } from '../services/ticketRushApi'
+import { formatCurrency, formatDate, listTickets } from '../services/ticketRushApi'
 import type { Booking, Seat, Showtime, Ticket, TicketRushEvent } from '../types'
 
 type TicketBundle = {
@@ -22,7 +22,7 @@ export function MyTicketsPage() {
   useEffect(() => {
     let cancelled = false
     ;(async () => {
-      const ticketBundles = await listBookingsByUser(auth.user?.id)
+      const ticketBundles = await listTickets(auth.user?.id)
       if (cancelled) return
       setBundles(ticketBundles)
       setIsLoading(false)
