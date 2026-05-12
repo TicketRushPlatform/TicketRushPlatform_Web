@@ -1,4 +1,5 @@
 import { config } from '../config/env'
+import { clearTokens, getTokenPersistence, loadTokens, saveTokens } from './authStorage'
 
 export type ApiErrorResponse = {
   code: string
@@ -61,6 +62,19 @@ async function requestJson<T>(
   }
 
   const data = await parseJsonSafe(response)
+
+  if (response.status === 401 && options.accessToken) {
+    const stored = loadTokens()
+    if (stored?.refresh_token && stored.access_token === options.accessToken) {
+      try {
+        const refreshed = await refresh({ refresh_token: stored.refresh_token })
+        saveTokens(refreshed, { persist: getTokenPersistence() ?? true })
+        return requestJson<T>(path, { ...options, accessToken: refreshed.access_token })
+      } catch {
+        clearTokens()
+      }
+    }
+  }
 
   if (!response.ok) {
     const maybeBody = (data && typeof data === 'object' ? (data as ApiErrorResponse) : undefined)

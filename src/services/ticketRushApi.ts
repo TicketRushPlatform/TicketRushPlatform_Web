@@ -1,7 +1,8 @@
 import { generateSeats } from '../data/demoTicketRush'
 import { config } from '../config/env'
-import { loadTokens } from './authStorage'
+import { clearTokens, getTokenPersistence, loadTokens, saveTokens } from './authStorage'
 import { loadSavedSeatMaps } from '../pages/SeatMapDesignerPage'
+import { refresh } from './userApi'
 import type {
   Booking,
   DashboardMetrics,
@@ -371,12 +372,41 @@ function writeState(state: TicketRushState): void {
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
 }
 
-async function fetchEventApi<T>(path: string): Promise<T> {
+async function refreshStoredTokens(): Promise<string | null> {
+  const stored = loadTokens()
+  if (!stored?.refresh_token) return null
+  try {
+    const refreshed = await refresh({ refresh_token: stored.refresh_token })
+    saveTokens(refreshed, { persist: getTokenPersistence() ?? true })
+    return refreshed.access_token
+  } catch {
+    clearTokens()
+    return null
+  }
+}
+
+async function authFetch(input: RequestInfo | URL, init: RequestInit = {}, retry = true): Promise<Response> {
   const token = loadTokens()?.access_token
-  const response = await fetch(`${config.api.eventBaseUrl}${path.startsWith('/') ? path : `/${path}`}`, {
+  const headers = new Headers(init.headers)
+  if (!headers.has('accept')) headers.set('accept', 'application/json')
+  if (token && !headers.has('authorization')) headers.set('authorization', `Bearer ${token}`)
+
+  const response = await fetch(input, { ...init, headers })
+  if (response.status !== 401 || !retry) return response
+
+  const refreshedAccessToken = await refreshStoredTokens()
+  if (!refreshedAccessToken) return response
+
+  const retryHeaders = new Headers(init.headers)
+  if (!retryHeaders.has('accept')) retryHeaders.set('accept', 'application/json')
+  retryHeaders.set('authorization', `Bearer ${refreshedAccessToken}`)
+  return fetch(input, { ...init, headers: retryHeaders })
+}
+
+async function fetchEventApi<T>(path: string): Promise<T> {
+  const response = await authFetch(`${config.api.eventBaseUrl}${path.startsWith('/') ? path : `/${path}`}`, {
     headers: {
       accept: 'application/json',
-      ...(token ? { authorization: `Bearer ${token}` } : {}),
     },
   })
   if (!response.ok) throw new Error('Unable to fetch event catalog from backend.')
@@ -391,11 +421,9 @@ async function fetchEventPageApi(path: string): Promise<{
   total_items: number
   total_pages: number
 }> {
-  const token = loadTokens()?.access_token
-  const response = await fetch(`${config.api.eventBaseUrl}${path.startsWith('/') ? path : `/${path}`}`, {
+  const response = await authFetch(`${config.api.eventBaseUrl}${path.startsWith('/') ? path : `/${path}`}`, {
     headers: {
       accept: 'application/json',
-      ...(token ? { authorization: `Bearer ${token}` } : {}),
     },
   })
   if (!response.ok) throw new Error('Unable to fetch event catalog from backend.')
@@ -494,13 +522,11 @@ async function getEventFromBackend(eventId: string, primaryShowtime?: Showtime):
 }
 
 async function postEventApi<T>(path: string, body: unknown): Promise<T> {
-  const token = loadTokens()?.access_token
-  const response = await fetch(`${config.api.eventBaseUrl}${path.startsWith('/') ? path : `/${path}`}`, {
+  const response = await authFetch(`${config.api.eventBaseUrl}${path.startsWith('/') ? path : `/${path}`}`, {
     method: 'POST',
     headers: {
       accept: 'application/json',
       'content-type': 'application/json',
-      ...(token ? { authorization: `Bearer ${token}` } : {}),
     },
     body: JSON.stringify(body),
   })
@@ -512,13 +538,11 @@ async function postEventApi<T>(path: string, body: unknown): Promise<T> {
 }
 
 async function putEventApi<T>(path: string, body: unknown): Promise<T> {
-  const token = loadTokens()?.access_token
-  const response = await fetch(`${config.api.eventBaseUrl}${path.startsWith('/') ? path : `/${path}`}`, {
+  const response = await authFetch(`${config.api.eventBaseUrl}${path.startsWith('/') ? path : `/${path}`}`, {
     method: 'PUT',
     headers: {
       accept: 'application/json',
       'content-type': 'application/json',
-      ...(token ? { authorization: `Bearer ${token}` } : {}),
     },
     body: JSON.stringify(body),
   })
@@ -530,13 +554,11 @@ async function putEventApi<T>(path: string, body: unknown): Promise<T> {
 }
 
 async function putEventApiNoResponse(path: string, body: unknown): Promise<void> {
-  const token = loadTokens()?.access_token
-  const response = await fetch(`${config.api.eventBaseUrl}${path.startsWith('/') ? path : `/${path}`}`, {
+  const response = await authFetch(`${config.api.eventBaseUrl}${path.startsWith('/') ? path : `/${path}`}`, {
     method: 'PUT',
     headers: {
       accept: 'application/json',
       'content-type': 'application/json',
-      ...(token ? { authorization: `Bearer ${token}` } : {}),
     },
     body: JSON.stringify(body),
   })
@@ -546,12 +568,10 @@ async function putEventApiNoResponse(path: string, body: unknown): Promise<void>
 }
 
 async function bookingApiRequest<T>(path: string, init?: RequestInit): Promise<T> {
-  const token = loadTokens()?.access_token
-  const response = await fetch(`${config.api.bookingBaseUrl}${path.startsWith('/') ? path : `/${path}`}`, {
+  const response = await authFetch(`${config.api.bookingBaseUrl}${path.startsWith('/') ? path : `/${path}`}`, {
     headers: {
       accept: 'application/json',
       ...(init?.body ? { 'content-type': 'application/json' } : {}),
-      ...(token ? { authorization: `Bearer ${token}` } : {}),
       ...(init?.headers ?? {}),
     },
     ...init,
@@ -1148,11 +1168,9 @@ export async function listTickets(userId = DEFAULT_USER_ID): Promise<BookingDeta
   if (existing) return existing
 
   const request = (async () => {
-    const token = loadTokens()?.access_token
-    const response = await fetch(`${config.api.bookingBaseUrl}/bookings/user/${encodeURIComponent(userId)}?page=1&page_size=50`, {
+    const response = await authFetch(`${config.api.bookingBaseUrl}/bookings/user/${encodeURIComponent(userId)}?page=1&page_size=50`, {
       headers: {
         accept: 'application/json',
-        ...(token ? { authorization: `Bearer ${token}` } : {}),
       },
     })
     if (!response.ok) throw new Error('Unable to load your tickets from booking service.')
@@ -1171,11 +1189,9 @@ export async function listTickets(userId = DEFAULT_USER_ID): Promise<BookingDeta
 }
 
 export async function listBookingsByUser(userId = DEFAULT_USER_ID): Promise<BookingDetail[]> {
-  const token = loadTokens()?.access_token
-  const response = await fetch(`${config.api.bookingBaseUrl}/bookings/user/${encodeURIComponent(userId)}?page=1&page_size=50`, {
+  const response = await authFetch(`${config.api.bookingBaseUrl}/bookings/user/${encodeURIComponent(userId)}?page=1&page_size=50`, {
     headers: {
       accept: 'application/json',
-      ...(token ? { authorization: `Bearer ${token}` } : {}),
     },
   })
   if (!response.ok) throw new Error('Unable to load your booking history from booking service.')
@@ -1570,11 +1586,9 @@ export async function getAdminDashboardStats(): Promise<AdminDashboardStats> {
 }
 
 export async function getTotalEventsCount(): Promise<number> {
-  const token = loadTokens()?.access_token
-  const response = await fetch(`${config.api.eventBaseUrl}/events?page=1&page_size=1`, {
+  const response = await authFetch(`${config.api.eventBaseUrl}/events?page=1&page_size=1`, {
     headers: {
       accept: 'application/json',
-      ...(token ? { authorization: `Bearer ${token}` } : {}),
     },
   })
   if (!response.ok) return 0

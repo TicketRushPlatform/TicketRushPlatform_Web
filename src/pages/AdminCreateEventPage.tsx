@@ -16,8 +16,8 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
 import { Link, useLocation, useParams } from 'react-router-dom'
-import { createEvent, fetchSeatMaps, getEvent, getShowtimesByEvent, updateEvent } from '../services/ticketRushApi'
-import type { EventCategory, SeatSectionInput, TicketStatus } from '../types'
+import { createEvent, fetchSeatMaps, getEvent, getShowtimesByEvent, listEvents, updateEvent } from '../services/ticketRushApi'
+import type { EventCategory, EventItem, SeatSectionInput, TicketStatus } from '../types'
 import type { EnrichedTmdbMovie } from '../services/tmdbApi'
 import { SeatMapDesignerPage, type SavedSeatMap } from './SeatMapDesignerPage'
 import { MoviePickerModal } from './MoviePickerModal'
@@ -78,6 +78,17 @@ function fileToDataUrl(file: File): Promise<string> {
   })
 }
 
+function normalizeMovieTitle(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 type AdminShowtimeRow = {
   id?: string
   date: string
@@ -120,19 +131,32 @@ export function AdminCreateEventPage({ asModal, onSuccess, onClose }: { asModal?
   const [isCreatingSeatMap, setIsCreatingSeatMap] = useState(false)
   const [isMoviePickerOpen, setIsMoviePickerOpen] = useState(false)
   const [selectedTmdbMovie, setSelectedTmdbMovie] = useState<EnrichedTmdbMovie | null>(null)
+  const [duplicateMovieEvent, setDuplicateMovieEvent] = useState<EventItem | null>(null)
   const isMovieCategory = category === 'Cinema'
 
   // Accept TMDB movie data from navigation state (from AdminMoviesPage)
   useEffect(() => {
     const state = location.state as { tmdbMovie?: EnrichedTmdbMovie } | null
     if (state?.tmdbMovie && !isEditMode) {
-      applyTmdbMovie(state.tmdbMovie)
+      void applyTmdbMovie(state.tmdbMovie)
       // Clear the state so it doesn't re-apply on re-render
       window.history.replaceState({}, document.title)
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  function applyTmdbMovie(movie: EnrichedTmdbMovie) {
+  async function findDuplicateMovieEvent(movie: EnrichedTmdbMovie): Promise<EventItem | null> {
+    const movieTitle = normalizeMovieTitle(movie.title)
+    const originalTitle = normalizeMovieTitle(movie.originalTitle)
+    const events = await listEvents({ kind: 'MOVIE' })
+    return events.find((event) => {
+      const eventTitle = normalizeMovieTitle(event.name)
+      return eventTitle === movieTitle || Boolean(originalTitle && eventTitle === originalTitle)
+    }) ?? null
+  }
+
+  async function applyTmdbMovie(movie: EnrichedTmdbMovie) {
+    const duplicate = await findDuplicateMovieEvent(movie).catch(() => null)
+    setDuplicateMovieEvent(duplicate)
     setSelectedTmdbMovie(movie)
     setCategory('Cinema')
     setEventName(movie.title)
@@ -140,15 +164,21 @@ export function AdminCreateEventPage({ asModal, onSuccess, onClose }: { asModal?
     setPosterPreviewUrl(movie.posterUrl)
     setEventDurationMinutes(movie.runtime || 120)
     setCity('Ho Chi Minh City')
+    if (duplicate) {
+      setNotice({ tone: 'error', text: `Movie "${movie.title}" already has an event. Open "${duplicate.name}" instead of creating a duplicate.` })
+    } else {
+      setNotice(null)
+    }
   }
 
   function handleMovieSelected(movie: EnrichedTmdbMovie) {
-    applyTmdbMovie(movie)
+    void applyTmdbMovie(movie)
     setIsMoviePickerOpen(false)
   }
 
   function handleClearMovie() {
     setSelectedTmdbMovie(null)
+    setDuplicateMovieEvent(null)
   }
 
   function updateShowtime(index: number, patch: Partial<AdminShowtimeRow>) {
@@ -265,6 +295,14 @@ export function AdminCreateEventPage({ asModal, onSuccess, onClose }: { asModal?
     if (showtimes.some((item) => item.queueEnabled && (item.queueLimit <= 0 || item.queueLimit > 10000))) {
       setNotice({ tone: 'error', text: 'Queue limit per showtime must be greater than 0 and up to 10000.' })
       return
+    }
+    if (!isEditMode && selectedTmdbMovie) {
+      const duplicate = duplicateMovieEvent ?? await findDuplicateMovieEvent(selectedTmdbMovie).catch(() => null)
+      if (duplicate) {
+        setDuplicateMovieEvent(duplicate)
+        setNotice({ tone: 'error', text: `Movie "${selectedTmdbMovie.title}" already has an event. Open "${duplicate.name}" instead of creating a duplicate.` })
+        return
+      }
     }
     setIsSubmitting(true)
     setNotice(null)
@@ -412,6 +450,7 @@ export function AdminCreateEventPage({ asModal, onSuccess, onClose }: { asModal?
                   setCategory(value as EventCategory)
                   if (value !== 'Cinema') {
                     setSelectedTmdbMovie(null)
+                    setDuplicateMovieEvent(null)
                   }
                 }}
               />
@@ -457,6 +496,14 @@ export function AdminCreateEventPage({ asModal, onSuccess, onClose }: { asModal?
                       <X size={16} strokeWidth={2.5} />
                       Remove
                     </button>
+                    {duplicateMovieEvent && (
+                      <div className="auth-notice error" role="alert" style={{ marginTop: 12 }}>
+                        <span className="auth-notice-icon">
+                          <AlertCircle size={18} strokeWidth={2.5} />
+                        </span>
+                        <p>Movie event already exists: {duplicateMovieEvent.name}. Duplicate creation is disabled.</p>
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <button
@@ -646,7 +693,7 @@ export function AdminCreateEventPage({ asModal, onSuccess, onClose }: { asModal?
               Save draft
             </button>
           )}
-          <button className="primary-button compact-button" type="submit" disabled={isSubmitting}>
+          <button className="primary-button compact-button" type="submit" disabled={isSubmitting || Boolean(duplicateMovieEvent)}>
             {isSubmitting ? (isEditMode ? 'Saving...' : 'Publishing...') : isEditMode ? 'Save changes' : 'Publish event'}
             <span>
               <Save size={18} strokeWidth={2.5} />

@@ -21,6 +21,12 @@ export function loadTokens(): TokenPair | null {
   return read(localStorage) ?? read(sessionStorage)
 }
 
+export function getTokenPersistence(): boolean | null {
+  if (localStorage.getItem(STORAGE_KEY)) return true
+  if (sessionStorage.getItem(STORAGE_KEY)) return false
+  return null
+}
+
 export function saveTokens(tokens: TokenPair, options: SaveOptions = {}): void {
   const persist = options.persist ?? true
   const storage = persist ? localStorage : sessionStorage
