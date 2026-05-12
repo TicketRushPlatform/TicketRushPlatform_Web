@@ -154,6 +154,18 @@ type ReplaceShowtimesApiRequest = Array<{
   queue_limit?: number
 }>
 
+export type CreateSeatMapPayload = {
+  name: string
+  venue: string
+  address: string
+  seats: Array<{
+    row: string
+    number: number
+    seat_class: SeatClass
+    price: number
+  }>
+}
+
 type SeatStatusResponse = {
   showtimeId: string
   seats: Seat[]
@@ -252,6 +264,15 @@ type BookingDetail = {
 const showtimeApiRequestCache = new Map<string, Promise<ShowtimeApiResponse | undefined>>()
 const eventApiRequestCache = new Map<string, Promise<EventApiResponse | undefined>>()
 const listTicketsInFlight = new Map<string, Promise<BookingDetail[]>>()
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+function isUuidOrUrnUuid(value: string): boolean {
+  if (UUID_REGEX.test(value)) return true
+  const lower = value.toLowerCase()
+  if (!lower.startsWith('urn:uuid:')) return false
+  return UUID_REGEX.test(value.slice('urn:uuid:'.length))
+}
 
 export type EventPageResult = {
   events: EventItem[]
@@ -617,26 +638,32 @@ export function subscribeSeatsStatus(showtimeId: string, onStatus: (status: Real
           }))
           let { total, available, holding, sold } = normalized
 
-          if (seats.length === 0) {
-            const state = getFreshState()
-            const localSeats = state.seats.filter((seat) => seat.showtimeId === showtimeId)
-            if (localSeats.length > 0) {
-              seats = localSeats.map(seat => ({
-                id: seat.id,
-                showtimeId: seat.showtimeId,
-                section: 'Seat',
-                row: seat.row,
-                number: seat.number,
-                seatClass: seat.seatClass,
-                price: seat.price,
-                status: seat.status,
-                expiresAt: seat.expiresAt
-              }))
-              const counts = seatCounts(state, showtimeId)
-              total = counts.total
-              available = counts.available
-              holding = counts.holding
-              sold = counts.sold
+          // Only fall back to local/demo seats for non-UUID showtimes.
+          // Backend booking service expects UUID seat_ids; sending demo ids will fail (e.g. "invalid urn prefix").
+          if (seats.length === 0 && !isUuidOrUrnUuid(showtimeId)) {
+            try {
+              const state = getFreshState()
+              const localSeats = state.seats.filter((seat) => seat.showtimeId === showtimeId)
+              if (localSeats.length > 0) {
+                seats = localSeats.map((seat) => ({
+                  id: seat.id,
+                  showtimeId: seat.showtimeId,
+                  section: 'Seat',
+                  row: seat.row,
+                  number: seat.number,
+                  seatClass: seat.seatClass,
+                  price: seat.price,
+                  status: seat.status,
+                  expiresAt: seat.expiresAt,
+                }))
+                const counts = seatCounts(state, showtimeId)
+                total = counts.total
+                available = counts.available
+                holding = counts.holding
+                sold = counts.sold
+              }
+            } catch {
+              // Ignore local state errors; keep backend payload.
             }
           }
 
@@ -992,6 +1019,30 @@ export async function getShowtimesByEvent(eventId: string): Promise<Showtime[]> 
   }
 }
 
+export type SeatMapApiItem = {
+  id: string
+  name: string
+  venue_id: string
+  venue_name: string
+  venue_address: string
+  seats?: Array<{
+    id: string
+    row: string
+    number: number
+    seat_class: SeatClass
+    price: number
+  }>
+}
+
+export async function fetchSeatMaps(): Promise<SeatMapApiItem[]> {
+  return fetchEventApi<SeatMapApiItem[]>('/seat-maps')
+}
+
+export async function createSeatMap(payload: CreateSeatMapPayload): Promise<SeatMapApiItem> {
+  return postEventApi<SeatMapApiItem>('/seat-maps', payload)
+}
+
+
 export async function getSeatsStatus(showtimeId: string): Promise<SeatStatusResponse> {
   const response = await bookingApiRequest<BookingSeatStatusResponse>(`/showtimes/${encodeURIComponent(showtimeId)}/seats`)
   const normalized = normalizeRealtimeStatus(response)
@@ -1009,12 +1060,14 @@ export async function getSeatsStatus(showtimeId: string): Promise<SeatStatusResp
   }))
   let { total, available, holding, sold } = normalized
 
-  if (seats.length === 0) {
+  // Only fall back to local/demo seats for non-UUID showtimes.
+  // Backend booking service expects UUID seat_ids; sending demo ids will fail.
+  if (seats.length === 0 && !isUuidOrUrnUuid(showtimeId)) {
     await ensureCatalogBootstrap()
     const state = getFreshState()
     const localSeats = state.seats.filter((seat) => seat.showtimeId === showtimeId)
     if (localSeats.length > 0) {
-      seats = localSeats.map(seat => ({
+      seats = localSeats.map((seat) => ({
         id: seat.id,
         showtimeId: seat.showtimeId,
         section: 'Seat',
@@ -1023,7 +1076,7 @@ export async function getSeatsStatus(showtimeId: string): Promise<SeatStatusResp
         seatClass: seat.seatClass,
         price: seat.price,
         status: seat.status,
-        expiresAt: seat.expiresAt
+        expiresAt: seat.expiresAt,
       }))
       const counts = seatCounts(state, showtimeId)
       total = counts.total
@@ -1045,6 +1098,10 @@ export async function getSeatsStatus(showtimeId: string): Promise<SeatStatusResp
 
 export async function holdSeats(showtimeId: string, seatIds: string[], userId = DEFAULT_USER_ID): Promise<Booking> {
   if (seatIds.length === 0) throw new Error('Select at least one seat.')
+  if (!isUuidOrUrnUuid(showtimeId)) throw new Error('Showtime id is invalid for booking.')
+  if (seatIds.some((seatId) => !isUuidOrUrnUuid(seatId))) {
+    throw new Error('Seat inventory is out of sync. Please refresh and try again.')
+  }
 
   const response = await bookingApiRequest<BookingApiResponse>('/bookings/hold', {
     method: 'POST',
@@ -1091,18 +1148,18 @@ export async function listTickets(userId = DEFAULT_USER_ID): Promise<BookingDeta
   if (existing) return existing
 
   const request = (async () => {
-  const token = loadTokens()?.access_token
-  const response = await fetch(`${config.api.bookingBaseUrl}/bookings/user/${encodeURIComponent(userId)}?page=1&page_size=50`, {
-    headers: {
-      accept: 'application/json',
-      ...(token ? { authorization: `Bearer ${token}` } : {}),
-    },
-  })
-  if (!response.ok) throw new Error('Unable to load your tickets from booking service.')
-  const payload = (await response.json()) as BookingListResponse
-  const paidBookings = payload.data.filter((booking) => booking.status === 'PAID')
-  const details = await Promise.all(paidBookings.map((booking) => mapBookingApiToDetail(booking, userId)))
-  return details.filter((detail): detail is BookingDetail => Boolean(detail))
+    const token = loadTokens()?.access_token
+    const response = await fetch(`${config.api.bookingBaseUrl}/bookings/user/${encodeURIComponent(userId)}?page=1&page_size=50`, {
+      headers: {
+        accept: 'application/json',
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
+      },
+    })
+    if (!response.ok) throw new Error('Unable to load your tickets from booking service.')
+    const payload = (await response.json()) as BookingListResponse
+    const paidBookings = payload.data.filter((booking) => booking.status === 'PAID')
+    const details = await Promise.all(paidBookings.map((booking) => mapBookingApiToDetail(booking, userId)))
+    return details.filter((detail): detail is BookingDetail => Boolean(detail))
   })()
 
   listTicketsInFlight.set(cacheKey, request)
